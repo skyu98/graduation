@@ -12,8 +12,7 @@ using namespace cv;
 Mat src, dst;
 string input_dir = "../test_imgs/";
 string output_dir = "../output_imgs/";
-string input_num = "1";
-
+string input_num = "3";
 char output_image[] = "output image";
 
 void fillHole(const Mat srcBw, Mat& dstBw) {
@@ -56,34 +55,38 @@ int main(int argc, char argv[]) {
     // 均值降噪
     Mat blurImg;
     GaussianBlur(src, blurImg, Size(7, 7), 0, 0);
-    // imshow("blured", src);
 
-    // 灰度图二值化
-    Mat gray_src, binary;
+    // 灰度图
+    Mat gray_src, binary, equlizedImg;
     cvtColor(blurImg, gray_src, COLOR_BGR2GRAY);
-    threshold(gray_src, binary, 68, 255, THRESH_BINARY);
+    imshow("grayImg", gray_src);
+   
+    // 二值化
+    threshold(gray_src, binary, 60, 255, THRESH_BINARY);
     // imshow("binary", binary);
     imwrite(output_dir + input_num + "/binary.jpg", binary);
 
    
     Mat morphImage;
     Mat bigKernel = getStructuringElement(MORPH_RECT, Size(15, 15));
-    Mat smallKernel = getStructuringElement(MORPH_RECT, Size(5, 5));
-    Mat horizonal = getStructuringElement(MORPH_RECT, Size(15, 1));
-    Mat vertical = getStructuringElement(MORPH_RECT, Size(1, 15));
+    Mat smallKernel = getStructuringElement(MORPH_RECT, Size(3, 3));
+    //Mat horizonal = getStructuringElement(MORPH_RECT, Size(15, 1));
+    //Mat vertical = getStructuringElement(MORPH_RECT, Size(1, 15));
 
     // 开操作进行背景去噪
-    morphologyEx(binary, morphImage, MORPH_OPEN, horizonal, Point(-1, -1), 2);
-    morphologyEx(morphImage, morphImage, MORPH_OPEN, vertical, Point(-1, -1), 2);
-    morphologyEx(morphImage, morphImage, MORPH_OPEN, smallKernel, Point(-1, -1), 2);
+    //morphologyEx(binary, morphimage, morph_open, horizonal, point(-1, -1), 2);
+    //morphologyEx(morphimage, morphimage, morph_open, vertical, point(-1, -1), 2);
+
+    morphologyEx(binary, morphImage, MORPH_OPEN, smallKernel, Point(-1, -1), 2);
 
     // 闭操作进行联通物体内部
-    morphologyEx(morphImage, morphImage, MORPH_CLOSE, bigKernel, Point(-1, -1), 2);
-    imshow("morphology", morphImage);
-    imwrite(output_dir + input_num + "/morph.jpg", morphImage);
+    // morphologyEx(morphImage, morphImage, MORPH_CLOSE, bigKernel, Point(-1, -1), 2);
+    //imshow("morphology", morphImage);
+    //imwrite(output_dir + input_num + "/morph.jpg", morphImage);
 
     Mat paddedImage;
     copyMakeBorder(morphImage, paddedImage, 10, 10, 10, 10, BORDER_CONSTANT, 255);
+    // copyMakeBorder(binary, paddedImage, 10, 10, 10, 10, BORDER_CONSTANT, 255);
     imshow("paddedImage", paddedImage);
     imwrite(output_dir + input_num + "/padded.jpg", paddedImage);
 
