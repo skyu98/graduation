@@ -1,7 +1,6 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/video/tracking.hpp>
 #include <iostream>
-#include <direct.h>
 #include <math.h>
 #include <string>
 #include <chrono>
@@ -25,7 +24,7 @@ int main() {
 	grabCut(image, mask, rect, bgdModel, fgdModel, 5, GC_INIT_WITH_RECT);
 	auto end = std::chrono::high_resolution_clock::now();
 
-	std::chrono::duration<double, std::milli> timeUsed = end - start;	// ºÁÃë
+	std::chrono::duration<double, std::milli> timeUsed = end - start;	// ï¿½ï¿½ï¿½ï¿½
 
 	cout << "Time Of GrabCut is : " << timeUsed.count() << endl;
 
@@ -35,7 +34,7 @@ int main() {
 	{
 		for (int col = 0; col < result.cols; col++)
 		{
-			//Èç¹ûÑÚÄ¤maskµÄÄ³¸öÎ»ÖÃÉÏÏñËØÖµÎª1»ò3£¬Ò²¾ÍÊÇÃ÷ÏÔÇ°¾°ºÍ¿ÉÄÜÇ°¾°£¬¾Í°ÑÔ­Í¼ÏñÖÐ¸ÃÎ»ÖÃµÄÏñËØÖµ¸³¸ø½á¹ûÍ¼Ïñ
+			//ï¿½ï¿½ï¿½ï¿½ï¿½Ä¤maskï¿½ï¿½Ä³ï¿½ï¿½Î»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÖµÎª1ï¿½ï¿½3ï¿½ï¿½Ò²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½ï¿½Í¿ï¿½ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ï¿½ï¿½Í°ï¿½Ô­Í¼ï¿½ï¿½ï¿½Ð¸ï¿½Î»ï¿½Ãµï¿½ï¿½ï¿½ï¿½ï¿½Öµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í¼ï¿½ï¿½
 			if (mask.at<uchar>(row, col) == 1 || mask.at<uchar>(row, col) == 3)
 			{
 				result.at<Vec3b>(row, col) = image.at<Vec3b>(row, col);
@@ -44,7 +43,7 @@ int main() {
 	}
 	end = std::chrono::high_resolution_clock::now();
 
-	timeUsed = end - start;	// ºÁÃë
+	timeUsed = end - start;	// ï¿½ï¿½ï¿½ï¿½
 
 	cout << "Time Of Using Mask is : " << timeUsed.count() << endl;
 
