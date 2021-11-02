@@ -10,8 +10,8 @@ using namespace cv;
 
 int main() {
 	// Mat image = imread("./smallScale.jpg");
-	Mat image = imread("./test.jpg");
-	resize(image, image, Size(900, 500));
+	Mat image = imread("../imgs/cv_imgs/01.jpg");
+	resize(image, image, Size(500, 600));
 	imshow("image", image);
 
 	Mat mask = Mat::zeros(image.size(), CV_8UC1);
@@ -21,7 +21,7 @@ int main() {
 	Mat bgdModel, fgdModel;
 
 	auto start = std::chrono::high_resolution_clock::now();
-	grabCut(image, mask, rect, bgdModel, fgdModel, 5, GC_INIT_WITH_RECT);
+	grabCut(image, mask, rect, bgdModel, fgdModel, 3, GC_INIT_WITH_RECT);
 	auto end = std::chrono::high_resolution_clock::now();
 
 	std::chrono::duration<double, std::milli> timeUsed = end - start;	// ����
