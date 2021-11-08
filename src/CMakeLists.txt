@@ -5,3 +5,4 @@ add_executable(main utils.cpp main.cpp jar.cpp)
 target_link_libraries(main ${OpenCV_LIBS})
 
 add_subdirectory(test)
+add_subdirectory(experiment)

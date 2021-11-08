@@ -11,15 +11,15 @@ using namespace cv;
 
 typedef struct {
     Point2f center;
-    
+
     double angle;
     double angle_double;
 
     double width;
     double height; 
+    bool isComplete = false;
 } Posture;
 
-using PosturePtr = std::shared_ptr<Posture>;
 using ContourPtr = std::shared_ptr<vector<Point> >;
 using ImgPtr = std::shared_ptr<Mat>;
 
@@ -27,18 +27,24 @@ class Jar {
 public:
     Jar() = default;
     bool init(const string& imgName);
+
     ContourPtr getOriginalContour();
-    PosturePtr getPosture();
+    Posture& getPosture();
     ContourPtr getRotatedContour();
-    void drawResult();
+
+    void findObstruction();
+    void drawResult(const string& output);
 
 private:
+    // 获取罐体与x轴正向的夹角，顺时针为正，[-90, 90]
     void getOrientation();
     void getSize();
 
     bool inited = false;
-    ImgPtr srcImg;
-    PosturePtr posture;
+    ImgPtr srcImg; // 用于像素处理的图，内容保持不变
+    ImgPtr paintImg; // 用于展示结果的图
+    ImgPtr rotatedImg; // 旋转后图像，罐体为直立状态
+    Posture posture;
     ContourPtr originalContour;
     ContourPtr rotatedContour;
 };

@@ -1,7 +1,7 @@
 add_executable(canny canny.cpp)
 target_link_libraries(canny ${OpenCV_LIBS})
 
-add_executable(test test.cpp)
+add_executable(test test.cpp ${PROJECT_SOURCE_DIR}/src/utils.cpp)
 target_link_libraries(test ${OpenCV_LIBS})
 
 add_executable(grabCutTest grabCutTest.cpp)
