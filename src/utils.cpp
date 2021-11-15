@@ -2,6 +2,7 @@
 
 namespace my_utils {
 
+// https://blog.csdn.net/wsp_1138886114/article/details/118694938
 Mat rotateImage(const Mat& image, double angle) {
 	Mat dst, M;
 	int h = image.rows;
@@ -17,14 +18,15 @@ Mat rotateImage(const Mat& image, double angle) {
 	int new_h = cos * h + sin * w;
 	M.at<double>(0, 2) += (new_w / 2.0 - w / 2);
 	M.at<double>(1, 2) += (new_h / 2.0 - h / 2);
-	warpAffine(image, dst, M, Size(new_w, new_h), INTER_LINEAR, 0, Scalar(255, 255, 0));
+    
+	warpAffine(image, dst, M, Size(new_w, new_h), INTER_LINEAR, 0, Scalar(255, 255, 255));
 	return dst;
 }
 
-Point getRotatedPoint(Point inputPoint,Point center,double angle) {
+Point getRotatedPoint(Point inputPoint, Point center, double angle) {
     Point rotatedPoint;
-    rotatedPoint.x = (inputPoint.x - center.x) * cos(-1 * angle) - (inputPoint.y - center.y) * sin(-1 * angle) + center.x;
-    rotatedPoint.y = (inputPoint.x - center.x) * sin(-1 * angle) + (inputPoint.y - center.y) * cos(-1 * angle) + center.y;
+    rotatedPoint.x = (inputPoint.x - center.x) * cos(angle) - (inputPoint.y - center.y) * sin(angle) + center.x;
+    rotatedPoint.y = (inputPoint.x - center.x) * sin(angle) + (inputPoint.y - center.y) * cos(angle) + center.y;
     return rotatedPoint;
 }
 

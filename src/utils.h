@@ -13,11 +13,15 @@ namespace my_utils {
 
 void ImageStretchByHistogram(const Mat& src, Mat & dst);
 
-/* 获得单个点经过旋转后所在精确坐标
-* @param angle : 顺时针为正，逆时针为负 
+/** @brief 获得单个点经过旋转后所在精确坐标
+    @param inputPoint 需要旋转的点
+    @param angle 顺时针为正，逆时针为负 
 */
-Point getRotatedPoint(Point inputPoint,Point center,double angle); 
+Point getRotatedPoint(Point inputPoint, Point center, double angle); 
 
+/** @brief 绕中心旋转图片并保持其原尺寸
+    @param angle 顺时针为正，逆时针为负 
+*/
 Mat rotateImage(const Mat& image, double angle);
 
 void putText(Mat& img, const string& text, Point textPos);
