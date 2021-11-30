@@ -16,13 +16,13 @@ int main(int argc, char* argv[]) {
 
     // 均值降噪
     Mat blurImg;
-    cv::GaussianBlur(img, blurImg, Size(11, 11), 0, 0);
+    cv::GaussianBlur(img, blurImg, Size(3, 3), 0, 0);
 
     Mat gray;
     cvtColor(blurImg, gray, COLOR_BGR2GRAY);
 
     Mat edges;
-    Canny(gray, edges, 40, 80, 3, true);
+    Canny(gray, edges, 40, 120, 3, true);
     imshow("edges", edges);
 
     Mat morph;

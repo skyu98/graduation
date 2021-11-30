@@ -10,19 +10,19 @@ using namespace std;
 using namespace cv;
 
 typedef struct {
-    Point2f center;
+    Point2d center;
 
     double angle;
     double angle_double;
 
-    double width;
-    double height; 
-    bool isComplete = false;
+    int width;
+    int height;
 } Posture;
 
 using ContourPtr = std::shared_ptr<vector<Point> >;
 using ImgPtr = std::shared_ptr<Mat>;
 using ConstImgPtr = std::shared_ptr<const Mat>;
+using Bounds = pair<int, int>;
 
 class Jar {
     enum State {
@@ -36,68 +36,75 @@ class Jar {
 public:
     Jar() = default;
     bool init(const string& imgName);
-    
+
     Posture& getPosture();
-    void findObstruction();
+    void getObstruction();
     void drawResult(const string& output);
 
 private:
     // 预处理罐体图片（滤波、去除高光等）
     void preprocess();
 
-    // 获取罐体的轮廓
-    void getContour();
+    // 通过直方图获取灰度阈值
+    int getGrayThreshold(const Mat& gray);
+
+    // 获取罐体的原始轮廓
+    ContourPtr getOriginalContour(const Mat& gray, bool showContour = false, cv::Scalar color = CV_RGB(200, 150, 200));
 
     // 获取罐体与x轴正向的夹角，顺时针为正，[-90, 90]
-    void getOrientation();
+    double getOrientation();
 
-    // 获取罐体的尺寸
-    void getSize();
-    
+    // 有可能有标签与背景联通的情况，进行填补修正
+    ContourPtr fixContour();
+
+    // 获取罐体在旋转后的轮廓
+    ContourPtr getRotatedContour(ContourPtr contour, double angle);
+
+    void scanContour(const Mat& img, const std::vector<Point>& contour);
+
     // 扫描方向
-    enum direction {
-        LEFT = 0,
-        RIGHT,
-        UP,
-        DOWN
+    enum Direction {
+        Left = 0,
+        Right,
+        Up,
+        Down
     };
 
-    /** @brief 横向扫描得到边界点
-     @param img 被扫描的图片，需要是灰度图（8UC1) 
-     @param center 扫描的起点，物体中心 
-     @param direction 扫描的方向，LEFT 或 RIGHT
-     @param gray_threshold 灰度阈值，大于该值则可能为背景
-     @param width_threshold 宽度阈值，连续扫描到的点大于该值则认定为背景
-     @return 水平方向扫描到的边界点
-    */
-    Point scanHorizonally(const Mat& img, Point center, int direction = RIGHT, int gray_threshold = 45, int width_threshold = 80);
-
-    /** @brief 从中心开始竖向移动，并对两边横向扫描得到左右两个边界点；结果保存在两个map中
-        @param img 被扫描的图片，需要是灰度图（8UC1) 
-        @param center 扫描的起点，物体中心 
-        @param direction 扫描的方向，LEFT 或 RIGHT
-        @param gray_threshold 灰度阈值，大于该值则可能为背景
-        @param width_threshold 宽度阈值，连续扫描到的点大于该值则认定为背景
-        @return 竖直方向扫描到的边界点
-    */
-    Point scanVertically(const Mat& img, Point center, int direction = UP, int step = 4);
-
     int handleWidths();
+    void findAndMarkObstruction(Direction d = Left, int obstruction_threshold = 20);
 
-    State state = kNotInited;
-    ConstImgPtr srcImg; // 用于像素处理的图，内容保持不变
-    ImgPtr paintImg; // 用于展示结果的图
+private:
+    State state_ = kNotInited;
+    Point ImgCenter_;
+    Posture posture_; 
+    
+    /* 原始图片及灰度图 */
+    ConstImgPtr srcImg_; // 用于像素处理的图，内容保持不变
+    ImgPtr paintImg_; // 用于展示结果的图
+    ImgPtr grayImg_; // 预处理得到的灰度图
+    int  grayThreshold_ = 43; // 灰度图核密度估计结果
+    ContourPtr originalContour_; // 原始灰度图得到的轮廓
 
-    ImgPtr gray; // 预处理得到的灰度图
-    ContourPtr originalContour; // 原始灰度图得到的轮廓
+    /* Hough变换检测出的直线及角度 */
+    std::vector<Vec4d> lines_;
+    std::vector<double> angles_;
+    ContourPtr fixedContour_; // 边界填补后的轮廓
 
-    ImgPtr rotatedGray; // 旋转后的灰度图像，用于扫描
-    ContourPtr rotatedContour; // 旋转为正的轮廓（中心点需要修正），用于辅助扫描
+    /* 旋转相关的类成员 */
+    ImgPtr rotatedGrayImg_; // 旋转后的灰度图像，用于扫描
+    ContourPtr rotatedContour_; // 旋转为正的轮廓（中心点需要修正），用于辅助扫描
+    Point2d rotatedCenter_; // 旋转并修正后的的轮廓中心点
+    pair<int, int> verticalBounds_; // 旋转后的上下边界点
+    int delta_col_ = 0; // 旋转后的坐标在x的偏移值
+    int delta_row_ = 0; // 旋转后的坐标在y的偏移值
 
-    Posture posture; 
-
-    std::unordered_map<int, int> widths;  // key:Y轴坐标 val：该Y值下的罐体宽度
-    std::unordered_map<int, int> widthsCount; // 每个宽度出现的次数（按5取整）
+    /* 扫描记录 */
+    std::unordered_map<int, Bounds> boundsOfY_; // key:Y轴坐标 val：罐体在该Y值下的左右边界;
+    std::unordered_map<int, std::vector<Bounds> > allBoundsOfWidth_; // 每个宽度对应的Y值左右边界
+    std::unordered_map<int, int> widthsCount_; // 每个宽度出现的次数
+    
+    /* 找到的障碍物 */
+    std::vector<cv::RotatedRect> obstructions_;
 };
 
 #endif // JAR_H

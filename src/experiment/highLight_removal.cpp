@@ -28,10 +28,13 @@ void getOriginalContourFromGray(Mat& src, int gray_method = DIFF) {
         // 通道分割方式
         Mat channels[3];
         split(img, channels);
+        // imshow("B", channels[0]);
+        // imshow("G", channels[1]);
+        // imshow("R", channels[2]);
 
         Mat diff;
         absdiff(channels[2], channels[0], diff);
-        my_utils::diff(channels[2], diff, channels[2], 2);
+        my_utils::diff(channels[2], diff, channels[2], 4);
         gray = std::move(channels[2]);
         imshow("gray_diff", gray);
     }
@@ -39,7 +42,7 @@ void getOriginalContourFromGray(Mat& src, int gray_method = DIFF) {
     // 二值化
     Mat binaryImg;
     // 0 - black 255 - white
-    cv::threshold(gray, binaryImg, 48, 255, THRESH_BINARY);
+    cv::threshold(gray, binaryImg, 45, 255, THRESH_BINARY);
 
     Mat paddedImg;
     cv::copyMakeBorder(binaryImg, paddedImg, 1, 1, 1, 1, BORDER_CONSTANT, 255);
@@ -65,10 +68,10 @@ int main(int argc, char* argv[]) {
     Mat src = imread(input_dir + imgName);
     Mat src2 = src.clone();
 
-    getOriginalContourFromGray(src, ORIGINAL);
+    // getOriginalContourFromGray(src, ORIGINAL);
     getOriginalContourFromGray(src2, DIFF);
 
-    imshow("res_original", src);
+    // imshow("res_original", src);
     imshow("res_diff", src2);
    
     waitKey(0);

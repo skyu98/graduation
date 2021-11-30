@@ -1,92 +1,158 @@
 #include "jar.h"
 
 bool Jar::init(const string& imgName) {
-    if(state > kNotInited) return true;
+    if(state_ > kNotInited) return true;
 
     Mat src = imread(imgName);
     if(src.empty()) {
-        printf(" %s does not exist!\nPlease check the path...\n", imgName.c_str());
+        printf(" %s does not exist!!!\nPlease check the path...\n", imgName.c_str());
         return false;
     }
+    cout << "Initializing....Please wait...." << endl;
+
     Mat paint = src.clone();
 
-    srcImg = make_shared<const Mat>(src);
-    paintImg = make_shared<Mat>(paint);
+    srcImg_ = make_shared<const Mat>(src);
+    paintImg_ = make_shared<Mat>(paint);
 
-    preprocess();
-    state = kInited;    
+    state_ = kInited;    
     return true;
 }
 
 Posture& Jar::getPosture() {
-    if(state >= kPostureGot) return posture;
-    
-    getContour();
-    getOrientation();
-    getSize();
+    if(state_ >= kPostureGot) return posture_;
+    cout << "Getting Posture...." << endl;
 
-    state = kPostureGot;
-    return posture;
+    preprocess();
+
+    cout << "Getting Gray Threshold...." << endl;
+    grayThreshold_ = getGrayThreshold(*grayImg_);
+    cout << grayThreshold_ << endl;
+
+    // 得到原始的轮廓
+    cout << ">>> Getting Original Contour...." << endl;
+    originalContour_ = getOriginalContour(*grayImg_, false);
+
+    // 根据轮廓进行Hough变换，得到罐体角度
+    cout << ">>> Getting Orientation...." << endl;
+    posture_.angle_double = getOrientation();;
+    posture_.angle = M_PI * posture_.angle_double / 180;
+
+    // 根据角度，获取旋转后的图片和数据
+    rotatedGrayImg_ = make_shared<Mat>(my_utils::rotateImage(*grayImg_, 90 - posture_.angle_double));
+    delta_col_ = (rotatedGrayImg_->cols - grayImg_->cols) / 2;
+    delta_row_ = (rotatedGrayImg_->rows - grayImg_->rows) / 2;
+    // imwrite("../imgs/output_imgs/grayImg_.jpg", *rotatedGrayImg_);
+   
+    // 根据得到的角度，画出边界竖线，使得边界上的标签不再联通   
+    cout << ">>> Fixxing Original Contour...." << endl;
+    fixedContour_ = fixContour();
+
+    // 根据罐体角度，将图片和轮廓旋转为正
+    cout << ">>> Getting Rotated Contour...." << endl;
+    rotatedContour_ = getRotatedContour(fixedContour_, posture_.angle);
+
+    // 旋转为正后进行宽度扫描，可以得到罐体上下边界点
+    cout << ">>> Scanning Contour...." << endl;
+    scanContour(*rotatedGrayImg_, *rotatedContour_);
+
+    // 统计扫描结果，可以得到主平均长度、罐体的旋转后中心、原始中心和上下边界点
+    cout << ">>> Handling Widths...." << endl;
+    posture_.width = handleWidths();
+    // cout << "The main average width of the jar is :" << posture_.width << endl;
+
+    state_ = kPostureGot;
+    return posture_;
 }
 
-
-void Jar::findObstruction() {
+void Jar::getObstruction() {
     // 先进行姿态估计
-    if(state < kPostureGot) {
+    if(state_ < kPostureGot) {
         getPosture();
     }
 
-    if(state >= kObstructionFound) return;
+    if(state_ >= kObstructionFound) return;
+    cout << "Finding Obstruction...." << endl;
 
-    rotatedGray = make_shared<Mat>(my_utils::rotateImage(*gray, 90 - posture.angle_double));
-    // imwrite("../imgs/output_imgs/gray.jpg", *rotatedGray);
+    findAndMarkObstruction(Left, posture_.width / 25);
+    findAndMarkObstruction(Right, posture_.width / 25);
 
-    // 修正旋转后的中心点
-    Point rotatedCenter = my_utils::getRotatedPoint(posture.center, Point(srcImg->cols / 2, srcImg->rows / 2), M_PI_2 - posture.angle);
-    Point center(rotatedCenter.x + ((rotatedGray->cols - srcImg->cols) / 2), 
-                rotatedCenter.y + ((rotatedGray->rows - srcImg->rows) / 2));
+    cout << "Finished!Found " << obstructions_.size() << " obstruction(s)!" << endl;
 
-    // 向上向下扫描，统计宽度并获得上下边界
-    Point up_bound = scanVertically(*rotatedGray, center, UP);
-    Point down_bound = scanVertically(*rotatedGray, center, DOWN);
+    for(auto& rotated_rect : obstructions_) {
+        rotated_rect.center.x -= delta_col_;
+        rotated_rect.center.y -= delta_row_;
 
-    // 统计处理得到的宽度结果，返回其 主平均宽度
-    int mainWidth = handleWidths();
-
-    Point tmp = up_bound;
-    while(tmp.y <= down_bound.y) {
-        if(widths[tmp.y] > mainWidth + 15) {
-            cv::circle(*rotatedGray, tmp, 3, CV_RGB(255, 255, 255), 2);
-        }
-        tmp.y += 10;
+        rotated_rect.center = my_utils::getRotatedPoint(rotated_rect.center, Point(srcImg_->cols / 2, srcImg_->rows / 2), posture_.angle - M_PI_2);
+        rotated_rect.angle += static_cast<float>(posture_.angle_double - 90.0);
     }
     
-    state = kFinished;
-
-    imshow("dst", *rotatedGray);
-    waitKey(0);
+    state_ = kObstructionFound;
 }
 
 void Jar::drawResult(const string& output) {
-    assert(state == kFinished);
-    string info = "width :" + to_string(static_cast<int>(posture.width)) + "  "
-                + "height :" + to_string(static_cast<int>(posture.height)) + "  "
-                + "angle :" + to_string(posture.angle_double); 
+    if(state_ < kPostureGot) {
+        cout << "Please get Posture/Obstruction first...." << endl;
+        return;
+    }
+    cout << "Drawing Result...." << endl;
+    
+    // Draw the principal components
+    // cv::circle(*rotatedGrayImg_, rotatedCenter_, 3, CV_RGB(255, 255, 255), 2);
 
-    my_utils::putText(*paintImg, info, posture.center);
-    imshow("Result", *paintImg);
+    // 在轮廓中点绘制小圆
+    cv::circle(*paintImg_, posture_.center, 3, CV_RGB(100, 200, 255), 2);
+    //计算出直线，在主要方向上绘制直线
+    cv::line(*paintImg_, posture_.center, posture_.center + 800 * Point2d(cos(posture_.angle), sin(posture_.angle)) , CV_RGB(255, 125, 0), 2);
+    // 打印罐体信息
+    std::vector<string> vec = {"width :" + to_string(static_cast<int>(posture_.width)), 
+                            "height :" + to_string(static_cast<int>(posture_.height)),
+                            "angle :" + to_string(static_cast<int>(posture_.angle_double))};
+
+    int x = posture_.center.x, y = posture_.center.y, dy = 35;
+    for(int i = 0;i < vec.size();++i) {
+        my_utils::putText(*paintImg_, vec[i], Point(x, y + i * dy));
+    }
+    
+    // 轮廓最小外接矩形
+    Rect rect = boundingRect(*rotatedContour_);
+
+    RotatedRect rotated_rect((Point2f)rect.tl(),Point2f(rect.br().x,rect.tl().y),(Point2f)rect.br());
+    Point2f vertexes[4];
+    rotated_rect.points(vertexes);
+
+    for (int i = 0; i < 4; i++) {
+        vertexes[i].x -= delta_col_;
+        vertexes[i].y -= delta_row_;
+        vertexes[i] = my_utils::getRotatedPoint(vertexes[i], ImgCenter_, posture_.angle - M_PI_2);
+    }
+
+    for (int i = 0; i < 4; i++) {
+        cv::line(*paintImg_, vertexes[i], vertexes[(i + 1) % 4], CV_RGB(100, 200, 255), 2, CV_AA);
+    } 
+
+    /* 绘制出障碍所在位置 */
+    for(auto& rotated_rect : obstructions_) {
+        Point2f vertexes[4];
+        rotated_rect.points(vertexes);
+
+        for (int i = 0; i < 4; i++) {
+            cv::line(*paintImg_, vertexes[i], vertexes[(i + 1) % 4], cv::Scalar(50, 50, 255), 2, CV_AA);
+        }
+    }
+
+    imshow("Result", *paintImg_);
     waitKey(0);
-    imwrite(output, *paintImg);
+    imwrite(output, *paintImg_);
+    state_ = kFinished;
 }
 
-void Jar::preprocess() {
-    // 均值降噪
-    Mat blurImg;
-    cv::GaussianBlur(*srcImg, blurImg, Size(9, 9), 0, 0);
 
+/* 以下用户不可见 */
+void Jar::preprocess() {
     // 顺序：B G R 
     Mat channels[3];
-    cv::split(blurImg, channels);
+    cv::split(*srcImg_, channels);
 
     // R - B 获得高光区域掩膜
     Mat diff;
@@ -95,20 +161,71 @@ void Jar::preprocess() {
     my_utils::diff(channels[2], diff, channels[2], 2);
 
     // 灰度图--CV_8UC1
-    gray = make_shared<Mat>(std::move(channels[2]));
-    // imshow("gray", *gray);
+    grayImg_ = make_shared<Mat>(std::move(channels[2]));
+    
+    // cv::GaussianBlur(*grayImg_, *grayImg_, Size(3, 3), 0, 0);
+    // imshow("grayImg_", *grayImg_);
 }
 
-void Jar::getContour() {
+int Jar::getGrayThreshold(const Mat& gray) {
+    Mat cropped;
+    resize(gray, cropped, Size(gray.rows / 5, gray.cols / 5));
+
+    vector<int> data;
+    int c_cols = cropped.cols, c_rows = cropped.rows;
+    data.reserve(c_cols *  c_rows);
+    for(int x = 0;x < c_cols;++x) {
+        for(int y = 0;y < c_rows;++y) {
+            int val = static_cast<int>(cropped.ptr<uchar>(y)[x]);
+            data.push_back(val);
+        }
+    }
+
+    vector<int> x_array;
+    x_array.reserve(256);
+    for(int i = 0;i < 256;++i) {
+        x_array.push_back(i);
+    }
+
+    vector<double> y;
+    y.reserve(x_array.size());
+    my_utils::getKDE(x_array, data, y, 5);
+
+    int size = y.size();
+    double extreme_max = 0, extreme_min = 0;
+    int extreme_max_idx = 0, extreme_min_idx = 0;
+    // 寻找极大值和极小值
+    for(int i = 0;i < size - 1;++i) {
+        if(i > 0 && y[i] > y[i - 1] && y[i] > y[i + 1]) {
+            extreme_max_idx = i; 
+            extreme_max = y[i];
+        }
+        if(i > 0 && y[i] < y[i - 1] && y[i] < y[i + 1]) {
+            extreme_min_idx = i;
+            extreme_min = y[i];
+            break;
+        }
+    }
+    // cout << extreme_max_idx << ", " << extreme_min_idx << endl;
+
+    double mid = extreme_min + (extreme_max - extreme_min) * 0.2;
+    double delta = mid / 10.0;
+    for(int i = extreme_max_idx;i <= extreme_min_idx;++i) {
+        if(abs(y[i] - mid) < delta) return i;
+    }
+    return extreme_max_idx + ((extreme_min_idx - extreme_max_idx) >> 1);
+}
+
+ContourPtr Jar::getOriginalContour(const Mat& gray, bool showContour, cv::Scalar color) {
     // 灰度图二值化
     Mat binaryImg;
     // 0 - black 255 - white
-    cv::threshold(*gray, binaryImg, 45, 255, THRESH_BINARY);
+    cv::threshold(gray, binaryImg, grayThreshold_, 255, THRESH_BINARY);
 
-    // 使用 ERODE 方式 让轮廓外扩一些
-    my_utils::morphology(binaryImg, binaryImg, MORPH_ERODE, 8);
-    // imshow("binaryImg", binaryImg);
-
+    // // 使用 ERODE 方式 让目标外扩一些
+    // my_utils::morphology(binaryImg, binaryImg, MORPH_DILATE, 5);
+    my_utils::morphology(binaryImg, binaryImg, MORPH_ERODE, 15);
+    
     // 图片各方向填充一个像素，避免边缘的线条被识别为轮廓
     Mat paddedImg;
     cv::copyMakeBorder(binaryImg, paddedImg, 1, 1, 1, 1, BORDER_CONSTANT, 255);
@@ -121,162 +238,216 @@ void Jar::getContour() {
     // 获取最大轮廓
     for (size_t t = 0; t < contours.size(); ++t) {
         Rect rect = boundingRect(contours[t]);
-        if( rect.width < paintImg->cols / 2) continue;
-
-        drawContours(*paintImg, contours, t, CV_RGB(255, 0, 0), 2, 8);
-        originalContour = make_shared<vector<Point> >(std::move(contours[t]));
-        break;
+        if(rect.width < paintImg_->cols / 2) continue;
+        if(showContour) {
+            drawContours(*paintImg_, contours, static_cast<int>(t), color, 2, 8);
+        }
+        return make_shared<vector<Point> >(std::move(contours[t]));
     } 
 }
 
-void Jar::getOrientation() {
-    // Construct a buffer used by the pca analysis
-    size_t pointCount = originalContour->size(); 
-    Mat pca_data = Mat(pointCount, 2, CV_64FC1); // n rows * 2 cols(x, y)
+double Jar::getOrientation() {
+    Mat onlyContours = cv::Mat::zeros(srcImg_->size(), CV_8UC1);;
+    vector<vector<Point> > contours{*originalContour_};
+    drawContours(onlyContours, contours, 0, CV_RGB(255, 255, 255), 2, 8);
 
-    for(size_t i = 0;i < pointCount;++i) {
-        pca_data.at<double>(i, 0) = (*originalContour)[i].x;
-        pca_data.at<double>(i, 1) = (*originalContour)[i].y;
-    }
-
-    // Perform PCA
-    cv::PCA pca_analysis(pca_data, Mat(), CV_PCA_DATA_AS_ROW);
-
-    posture.center.x = pca_analysis.mean.at<double>(0, 0); 
-    posture.center.y = pca_analysis.mean.at<double>(0, 1); 
-    
-    // 2 eigenvectors/eigenvalues are enough
-    vector<Point2d> eigen_vecs(2);
-    vector<double> eigen_val(2);
-
-    for (size_t i = 0; i < 2; ++i) {
-        eigen_vecs[i] = Point2d(pca_analysis.eigenvectors.at<double>(i, 0),
-                                pca_analysis.eigenvectors.at<double>(i, 1));
-        eigen_val[i] = pca_analysis.eigenvalues.at<double>(i,0);
-    }
-
-    // Get the eigenvec angle, range: (-pi, pi]
-    double eigenvec_angle = atan2(eigen_vecs[0].y, eigen_vecs[0].x);
-    double eigenvec_angle_double = 180 * (eigenvec_angle) / M_PI;
-    if(eigenvec_angle_double > 90) {
-        eigenvec_angle_double -= 180;
-    }
-    else if(eigenvec_angle_double < -1 * 90) {
-        eigenvec_angle_double += 180;
-    }
-
-    posture.angle_double = eigenvec_angle_double; 
-    posture.angle = M_PI * posture.angle_double / 180;
-    // cout << posture.angle_double << ", " << posture.angle << endl;
-
-    // Draw the principal components
-    // 在轮廓中点绘制小圆
-    circle(*paintImg, posture.center, 3, CV_RGB(255, 0, 255), 2);
-    //计算出直线，在主要方向上绘制直线
-    line(*paintImg, posture.center, posture.center + 800 * Point2f(cos(posture.angle), sin(posture.angle)) , CV_RGB(255, 255, 0));
-}
-
-void Jar::getSize() {
-    size_t pointCount = originalContour->size(); 
-    Point center(paintImg->cols / 2, paintImg->rows / 2);
-
-    // 计算原始轮廓绕中心旋转后得到的点
-    rotatedContour = make_shared<vector<Point> >(pointCount);
-    for(size_t i = 0;i < pointCount;++i) {
-        (*rotatedContour)[i] = my_utils::getRotatedPoint((*originalContour)[i], center, M_PI_2 - posture.angle);
+    double len = arcLength(*originalContour_, true);
+    double minLineLength = len / 30.0;
+    double maxLineGap = minLineLength / 3.0;
+	// Hough直线检测API
+    // InputArray src : 输入图像，必须8-bit的灰度图像；
+    // OutputArray lines_ : 输出的极坐标来表示直线；
+    // double rho : 生成极坐标时候的像素扫描步长；
+    // double theta : 生成极坐标时候的角度步长，一般取值CV_PI/180；
+    // int threshold : 阈值，只有获得足够交点的极坐标点才被看成是直线；
+    // double minLineLength = 0 : 最小直线长度 
+    // double maxLineGap = 0 : 最大间隔
+    while(lines_.size() < 8) {
+        lines_.clear();
+        cv::HoughLinesP(onlyContours, lines_, 1, CV_PI / 180, 100, minLineLength, maxLineGap);
+        minLineLength *= 0.9;
+        maxLineGap *= 1.1;
     }
     
-    // 轮廓最小外接矩形
-    Rect rect = boundingRect(*rotatedContour);
-
-    posture.width = std::min(rect.width,rect.height);
-    posture.height = std::max(rect.width,rect.height);
-
-    RotatedRect rotated_rect((Point2f)rect.tl(),Point2f(rect.br().x,rect.tl().y),(Point2f)rect.br());
-    Point2f vertexes[4];
-    rotated_rect.points(vertexes);
-
-    for (int i = 0; i < 4; i++) {
-        vertexes[i] = my_utils::getRotatedPoint(vertexes[i], center, posture.angle - M_PI_2);
-    }
-
-    //绘制旋转矩形
-    for (int i = 0; i < 4; i++) {
-        cv::line(*paintImg, vertexes[i], vertexes[(i + 1) % 4], cv::Scalar(255, 200, 100), 2, CV_AA);
-    }
-}
-
-Point Jar::scanVertically(const Mat& img, Point center, int direction, int step) {
-    assert(img.type() == CV_8UC1);
-
-    Point left_bound, right_bound;
-    int maxRows = img.rows;
-    int flag = direction == UP ? -1 : 1;
-    int curWidth = 0;
-
-    while(center.y >= 0 && center.y <= maxRows) {
-        center.y += flag * step;
-        left_bound = scanHorizonally(img, center, LEFT);
-        right_bound = scanHorizonally(img, center, RIGHT);
-
-        curWidth = right_bound.x - left_bound.x;
-        curWidth = (curWidth / 5) * 5;
-        if(curWidth == 0) break;
-
-        widths[center.y] = curWidth; 
-        ++widthsCount[curWidth];
-
-        cv::circle(*rotatedGray, left_bound, 2, CV_RGB(255, 255, 255), 1);
-        cv::circle(*rotatedGray, right_bound, 2, CV_RGB(255, 255, 255), 1);
-    }
-    return center;
-}
-
-Point Jar::scanHorizonally(const Mat& img, Point center, int direction, int gray_threshold, int width_threshold) {
-    int rows = img.rows, cols = img.cols;
-    assert(center.x <= cols & center.y <= rows);
-
-    int curX = center.x, curY = center.y, last_bound = curX;
-
-    const int SCAN_FRONT = 0; 
-    const int SCAN_BACK = 1;
-
-    int status = SCAN_FRONT; // 初始状态为 扫描前景
-
-    int front_count = 0, back_count = 0;
-
-    int flag = direction == RIGHT ? 1 : -1;
-
-    while(curX <= cols && curX >= 0) {
-        // 如果当前在扫描前景
-        if(status == SCAN_FRONT) {
-            // 遇到的点为黑色
-            if(static_cast<int>(img.at<uchar>(curY, curX)) <= gray_threshold) {
-                // 继续扫描
-            }
-            else { // 遇到的点为白色
-                status = SCAN_BACK;
-                last_bound = curX - flag;
-                front_count = 0;
-            }
-        }   
-        else { // 如果当前在扫描背景
-            // 遇到的点为黑色
-            if(static_cast<int>(img.at<uchar>(curY, curX)) <= gray_threshold) {
-                if(++front_count > (width_threshold / 3)) {
-                    status = SCAN_FRONT;
-                    back_count = 0;
-                }
-            }
-            else {
-                ++back_count;
-                if(back_count > 3 * front_count) front_count = 0;
-                if(back_count > width_threshold) break;
-            }
+    auto getAngle = [&](const Vec4d& line){
+        Point2d A(line[0], line[1]);
+        Point2d B(line[2], line[3]);
+        if(line[0] > line[2]) {
+           std::swap(A, B);
         }
-        curX += flag;
+
+        if(B.x - A.x == 0.0) return 90.0;
+
+        double k = (B.y - A.y)/(B.x - A.x);
+        double line_arctan = static_cast<double>(atan(k));
+        return line_arctan * 180.0 / M_PI;
+    };
+
+    angles_.reserve(lines_.size());
+    double total = 0.0;
+	for (const auto& line : lines_) {
+		// cv::line(*paintImg_, Point(line[0], line[1]), Point(line[2], line[3]), Scalar(255, 255, 0), 2, LINE_AA);
+        double angle = getAngle(line);
+        angles_.push_back(angle);
+        total += angle;
+	}
+
+    double rough_average = total / static_cast<double>(angles_.size());
+    total = 0.0;
+    int count = 0;
+    for(double angle : angles_) {
+        if(abs(angle - rough_average) < 20.0) {
+            total += angle;
+            ++count;
+        }
     }
-    return {last_bound, curY};
+
+    return total / static_cast<double>(count);
+}
+
+ContourPtr Jar::fixContour() {
+    /* 旋转图片 */
+    ImgCenter_ = Point(srcImg_->cols / 2, srcImg_->rows / 2);
+
+    Mat tmp = grayImg_->clone();
+
+    int size = lines_.size();
+    int maxY = 0, minY = INT_MAX;
+    int maxX = 0, minX = INT_MAX;
+
+    auto max_ = [](int x, int y, int z)->int {
+        int tmp = max(x, y);
+        return max(tmp, z);
+    };
+
+    auto min_ = [](int x, int y, int z)->int {
+        int tmp = min(x, y);
+        return min(tmp, z);
+    };
+    
+    for(int i = 0;i < size && (abs(angles_[i] - posture_.angle_double) < 5.0);++i) {
+        Vec4d& line = lines_[i];
+        Point A(line[0], line[1]);
+        Point B(line[2], line[3]);
+        
+        A = my_utils::getRotatedPoint(A, ImgCenter_, M_PI_2 - posture_.angle);
+        B = my_utils::getRotatedPoint(B, ImgCenter_, M_PI_2 - posture_.angle);
+
+        maxX = max_(maxX, A.x, B.x);
+        minX = min_(minX, A.x, B.x);
+
+        maxY = max_(maxY, A.y, B.y);
+        minY = min_(minY, A.y, B.y);
+    }
+    maxY += 10;
+    minY -= 10;
+
+    int average_x = minX + ((maxX - minX) >> 1);
+    int left_x = 0, right_x = 0;
+    int left_count = 0, right_count = 0;
+
+    for(int i = 0;i < size && (abs(angles_[i] - posture_.angle_double) < 5.0);++i) {
+        Vec4d& line = lines_[i];
+        Point2d A((line[0] + line[2]) / 2.0, (line[1] + line[3]) / 2.0);
+
+        Point rotated_A = my_utils::getRotatedPoint(A, ImgCenter_, M_PI_2 - posture_.angle);
+    
+        // left
+        if(rotated_A.x < average_x && rotated_A.x - minX <= 100) { 
+            left_x += rotated_A.x;
+            ++left_count;
+        }
+        //right
+        if(rotated_A.x > average_x && maxX - rotated_A.x <= 100) {
+            right_x += rotated_A.x;
+            ++right_count;
+        } 
+    }
+    left_x /= left_count;
+    left_x += 10;
+    right_x /= right_count;
+    right_x -=10;
+
+    Point left_Point(left_x, minY + (maxY - minY) / 2), right_Point(right_x, minY + (maxY - minY) / 2);
+    Point2d end_up = my_utils::getRotatedPoint(Point2d(left_x, maxY), ImgCenter_, posture_.angle - M_PI_2);
+    Point2d end_down = my_utils::getRotatedPoint(Point2d(left_x, minY), ImgCenter_, posture_.angle - M_PI_2);
+    left_Point = my_utils::getRotatedPoint(left_Point, ImgCenter_, posture_.angle - M_PI_2);
+
+    cv::line(tmp, left_Point, end_up, cv::Scalar(0, 0 ,0), 2, 4);
+    cv::line(tmp, left_Point, end_down, cv::Scalar(0, 0 ,0), 2, 4);
+
+    end_up = my_utils::getRotatedPoint(Point2d(right_x, maxY), ImgCenter_, posture_.angle - M_PI_2);
+    end_down = my_utils::getRotatedPoint(Point2d(right_x, minY), ImgCenter_, posture_.angle - M_PI_2);
+    right_Point = my_utils::getRotatedPoint(right_Point, ImgCenter_, posture_.angle - M_PI_2);
+    
+    cv::line(tmp, right_Point, end_up, cv::Scalar(0, 0 ,0), 2, 4);
+    cv::line(tmp, right_Point, end_down, cv::Scalar(0, 0 ,0), 2, 4);
+
+    // imshow("tmp", tmp);
+    return getOriginalContour(tmp, true);
+}
+
+ContourPtr Jar::getRotatedContour(ContourPtr contour, double angle) {
+    // 计算原始轮廓绕中心旋转后得到的点，并修正旋转后的轮廓
+    size_t pointCount = contour->size(); 
+    auto rotated = make_shared<vector<Point> >(pointCount);
+    for(size_t i = 0;i < pointCount;++i) {
+        Point& point = (*rotated)[i];
+        point = my_utils::getRotatedPoint((*contour)[i], ImgCenter_, M_PI_2 - angle);
+        point.x += delta_col_;
+        point.y += delta_row_;
+    }
+    return rotated;
+}
+
+void Jar::scanContour(const Mat& img, const std::vector<Point>& contour) {
+    Mat mask = cv::Mat::zeros(img.size(), CV_8UC1);
+    int rows = img.rows, cols = img.cols;
+    for(int y = 0;y <= rows;y += 10) {
+        line(mask, Point(0, y), Point(cols, y), Scalar(255,255,255), 1, 4);
+    }
+    
+    Mat onlyContours = cv::Mat::zeros(img.size(), CV_8UC1);;
+    vector<vector<Point> > contours{*rotatedContour_};
+    drawContours(onlyContours, contours, 0, CV_RGB(255, 255, 255), 1, 8);
+
+    Mat res(img.size(), CV_8UC1);
+    cv::bitwise_and(mask, onlyContours, res);
+
+    vector<Point> locations;
+    locations.reserve(2000);
+    cv::findNonZero(res, locations); 
+
+    sort(locations.begin(), locations.end(), [](const Point& a, const Point& b) {
+        if(a.y == b.y) return a.x < b.x;
+        return a.y < b.y; 
+    });
+
+    size_t size = locations.size();
+
+    verticalBounds_.first = locations[0].y;
+    verticalBounds_.second = locations[size - 1].y;
+    posture_.height = verticalBounds_.second - verticalBounds_.first;
+    
+    size_t i = 0;
+    int curX = 0, curY = 0;
+
+    while(i < size) {
+        curY = locations[i].y;
+        int minX = locations[i].x;
+        while(i < size && locations[i].y == curY) {
+            ++i;
+        }
+        int maxX = locations[i - 1].x;
+      
+        int width = (maxX - minX) / 2;
+        width *= 2;
+
+        ++widthsCount_[width];
+        boundsOfY_[curY] = make_pair(minX, maxX);
+        allBoundsOfWidth_[width].emplace_back(minX, maxX);
+    }
+    return;
 }
 
 int Jar::handleWidths() {
@@ -290,13 +461,15 @@ int Jar::handleWidths() {
     };  
     std::priority_queue<WidthAndCount, vector<WidthAndCount>, Compare_WidthAndCount> p_queue;
 
-    auto it = widthsCount.begin();
-    for(int i = 0;i < 2;++i, ++it) {
+    auto it = widthsCount_.begin();
+    int widthChoosed = widthsCount_.size() > 10 ? 10 : widthsCount_.size();
+    
+    for(int i = 0;i < widthChoosed;++i, ++it) {
         p_queue.push(*it);
     }
 
     Compare_WidthAndCount cmp;
-    while(it != widthsCount.end()) {
+    while(it != widthsCount_.end()) {
         if(cmp(*it, p_queue.top())) {
             p_queue.pop();
             p_queue.push(*it);
@@ -304,15 +477,104 @@ int Jar::handleWidths() {
         ++it;
     }
 
+    auto averageOfBoundsVec = [&](const std::vector<Bounds>& vec)->int{
+        int average = 0;
+        for(const Bounds& bounds : vec) {
+            average += bounds.first + ((bounds.second - bounds.first) >> 1);
+        }
+        return average / vec.size();
+    };
+
     int mainWidth = 0, mainCount = 0;
+    int averageX = 0;
     while(!p_queue.empty()) {
-        auto it = p_queue.top();
-        mainWidth += it.first * it.second;
-        mainCount += it.second;
+        auto& pair = p_queue.top();
+        int curWidth = pair.first, curCount = pair.second;
+
+        // 统计主平均宽度
+        mainWidth += curWidth * curCount;
+        mainCount += curCount;
+
+        // 计算中心点x坐标
+        auto& vec = allBoundsOfWidth_[curWidth];
+        averageX += averageOfBoundsVec(vec);
+
         p_queue.pop();
     }
     mainWidth /= mainCount;
 
-    cout << "The main average width of the jar is :" << mainWidth << endl;
+    rotatedCenter_.x = averageX / widthChoosed;
+    rotatedCenter_.y = verticalBounds_.first + ((verticalBounds_.second - verticalBounds_.first) >> 1);
+
+    posture_.center = my_utils::getRotatedPoint(Point(static_cast<int>(rotatedCenter_.x) - delta_col_, static_cast<int>(rotatedCenter_.y) - delta_row_), 
+                                           ImgCenter_, posture_.angle - M_PI_2);
+
     return mainWidth;
 }
+
+void Jar::findAndMarkObstruction(Direction direction, int obstruction_threshold) {
+    int up_bound = verticalBounds_.first, down_bound = verticalBounds_.second;
+    int mainWidth = posture_.width;
+
+    auto isObstruction = [&](int curY)->bool{
+        int width = boundsOfY_[curY].second - boundsOfY_[curY].first;
+        if(direction == Left) {
+            int left_width = static_cast<int>(rotatedCenter_.x) - boundsOfY_[curY].first;
+            return (width >= mainWidth + obstruction_threshold) &&
+                (left_width >= mainWidth / 2 + obstruction_threshold);
+        }
+        else {
+            int right_width = boundsOfY_[curY].second - static_cast<int>(rotatedCenter_.x);  
+            return (width >= mainWidth + obstruction_threshold) &&
+                (right_width >= mainWidth / 2 + obstruction_threshold);
+        }
+        return false;
+    };
+
+    int step = 5;
+    int curY = up_bound;
+
+    int begin = curY, end = curY, tmp_end = curY;
+    int bound = direction == Left ? INT_MAX : 0;
+    bool lastStepIsObstruction = false;
+
+    while(curY <= down_bound) {
+        // 当前属于障碍区域
+        if(isObstruction(curY)) {
+            // 如果上一步不是在障碍区扫描，则认为找到了下一个begin
+            if(!lastStepIsObstruction) {
+                bound = direction == Left ? INT_MAX : 0;
+                lastStepIsObstruction = true;
+                begin = curY;
+            }
+
+            // 记录障碍区域的边界
+            bound = direction == Left ? min(boundsOfY_[curY].first, bound) : max(boundsOfY_[curY].second, bound);
+
+            // cv::circle(*rotatedGrayImg_, Point(bound, curY), 3, CV_RGB(255, 255, 255), 2);
+        }
+        else { // 当前不是障碍区域
+            // 如果上一步正在障碍区扫描，且下一步仍然不是障碍区域，则认为找到了一个end
+            bool nextStepIsObstruction = isObstruction(curY + step);
+            if(lastStepIsObstruction && !nextStepIsObstruction) {
+                end = curY;
+                // 忽略高度小于阈值的障碍
+                if(end - begin >= obstruction_threshold) {
+                    // 框出障碍
+                    int width = static_cast<int>(abs(rotatedCenter_.x - bound)) - mainWidth / 2;
+                    int height = end - begin;
+                    Point2d center(0, begin + height / 2);
+                    center.x = direction == Left ? (bound + width / 2): (bound - width / 2);
+                    
+                    // 忽略宽度小于阈值的障碍
+                    if(width >= obstruction_threshold) {
+                        obstructions_.emplace_back(center, Size(width, height), 0);
+                    }
+                }
+                lastStepIsObstruction = false;
+            }
+        }
+        curY += step;
+    }
+}
+

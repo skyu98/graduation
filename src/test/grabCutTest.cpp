@@ -8,20 +8,24 @@
 using namespace std;
 using namespace cv;
 
-int main() {
-	// Mat image = imread("./smallScale.jpg");
-	Mat image = imread("../imgs/cv_imgs/01.jpg");
-	resize(image, image, Size(500, 600));
+string input_dir = "../imgs/input_imgs/";
+string output_dir = "../imgs/output_imgs/";
+
+int main(int argc, char* argv[]) {
+	string imgName = argc >= 2 ? argv[1] : "1.jpg";
+    Mat image = imread(input_dir + imgName);
+    
+	resize(image, image, Size(image.cols / 5, image.rows / 5));
 	imshow("image", image);
 
 	Mat mask = Mat::zeros(image.size(), CV_8UC1);
 	Rect rect = selectROI("image", image, false);
-	imwrite("./withRect.jpg", image);
+	// imwrite("./withRect.jpg", image);
 	destroyWindow("image");
 	Mat bgdModel, fgdModel;
 
 	auto start = std::chrono::high_resolution_clock::now();
-	grabCut(image, mask, rect, bgdModel, fgdModel, 3, GC_INIT_WITH_RECT);
+	grabCut(image, mask, rect, bgdModel, fgdModel, 2, GC_INIT_WITH_RECT);
 	auto end = std::chrono::high_resolution_clock::now();
 
 	std::chrono::duration<double, std::milli> timeUsed = end - start;	// ����
@@ -49,7 +53,7 @@ int main() {
 
 	imshow("result", result);
 	// imwrite("./output_smallScale.jpg", result);
-	imwrite("./output.jpg", result);
+	// imwrite("./output.jpg", result);
 	waitKey(0);
 }
 
