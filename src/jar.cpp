@@ -155,7 +155,7 @@ void Jar::preprocess() {
     cv::split(*srcImg_, channels);
 
     // R - B 获得高光区域掩膜
-    Mat diff;
+    Mat diff(srcImg_->size(), CV_8UC1);
     cv::absdiff(channels[2], channels[0], diff);
     // 使用掩膜去除高光
     my_utils::diff(channels[2], diff, channels[2], 2);
@@ -168,11 +168,11 @@ void Jar::preprocess() {
 }
 
 int Jar::getGrayThreshold(const Mat& gray) {
-    Mat cropped;
-    resize(gray, cropped, Size(gray.rows / 5, gray.cols / 5));
-
-    vector<int> data;
+    Mat cropped(Size(gray.rows / 5, gray.cols / 5), CV_8UC1);
     int c_cols = cropped.cols, c_rows = cropped.rows;
+    resize(gray, cropped, Size(c_rows, c_cols));
+    
+    vector<int> data;
     data.reserve(c_cols *  c_rows);
     for(int x = 0;x < c_cols;++x) {
         for(int y = 0;y < c_rows;++y) {
@@ -181,10 +181,10 @@ int Jar::getGrayThreshold(const Mat& gray) {
         }
     }
 
-    vector<int> x_array;
+    vector<int> x_array(256, 0);
     x_array.reserve(256);
     for(int i = 0;i < 256;++i) {
-        x_array.push_back(i);
+        x_array[i]= i;
     }
 
     vector<double> y;
@@ -192,15 +192,15 @@ int Jar::getGrayThreshold(const Mat& gray) {
     my_utils::getKDE(x_array, data, y, 5);
 
     int size = y.size();
-    double extreme_max = 0, extreme_min = 0;
+    double extreme_max = y[0], extreme_min = 0;
     int extreme_max_idx = 0, extreme_min_idx = 0;
     // 寻找极大值和极小值
-    for(int i = 0;i < size - 1;++i) {
-        if(i > 0 && y[i] > y[i - 1] && y[i] > y[i + 1]) {
+    for(int i = 1;i < size - 1;++i) {
+        if(y[i] > y[i - 1] && y[i] > y[i + 1]) {
             extreme_max_idx = i; 
             extreme_max = y[i];
         }
-        if(i > 0 && y[i] < y[i - 1] && y[i] < y[i + 1]) {
+        if(y[i] < y[i - 1] && y[i] < y[i + 1]) {
             extreme_min_idx = i;
             extreme_min = y[i];
             break;
@@ -208,7 +208,7 @@ int Jar::getGrayThreshold(const Mat& gray) {
     }
     // cout << extreme_max_idx << ", " << extreme_min_idx << endl;
 
-    double mid = extreme_min + (extreme_max - extreme_min) * 0.2;
+    double mid = extreme_min + (extreme_max - extreme_min) * 0.1;
     double delta = mid / 10.0;
     for(int i = extreme_max_idx;i <= extreme_min_idx;++i) {
         if(abs(y[i] - mid) < delta) return i;
@@ -218,7 +218,7 @@ int Jar::getGrayThreshold(const Mat& gray) {
 
 ContourPtr Jar::getOriginalContour(const Mat& gray, bool showContour, cv::Scalar color) {
     // 灰度图二值化
-    Mat binaryImg;
+    Mat binaryImg(srcImg_->size(), CV_8UC1);
     // 0 - black 255 - white
     cv::threshold(gray, binaryImg, grayThreshold_, 255, THRESH_BINARY);
 
@@ -262,11 +262,13 @@ double Jar::getOrientation() {
     // int threshold : 阈值，只有获得足够交点的极坐标点才被看成是直线；
     // double minLineLength = 0 : 最小直线长度 
     // double maxLineGap = 0 : 最大间隔
-    while(lines_.size() < 8) {
+    int iter_times = 0;
+    while(iter_times < 5 && lines_.size() < 8) {
         lines_.clear();
         cv::HoughLinesP(onlyContours, lines_, 1, CV_PI / 180, 100, minLineLength, maxLineGap);
         minLineLength *= 0.9;
         maxLineGap *= 1.1;
+        ++iter_times;
     }
     
     auto getAngle = [&](const Vec4d& line){
@@ -373,15 +375,15 @@ ContourPtr Jar::fixContour() {
     Point2d end_down = my_utils::getRotatedPoint(Point2d(left_x, minY), ImgCenter_, posture_.angle - M_PI_2);
     left_Point = my_utils::getRotatedPoint(left_Point, ImgCenter_, posture_.angle - M_PI_2);
 
-    cv::line(tmp, left_Point, end_up, cv::Scalar(0, 0 ,0), 2, 4);
-    cv::line(tmp, left_Point, end_down, cv::Scalar(0, 0 ,0), 2, 4);
+    cv::line(tmp, left_Point, end_up, cv::Scalar(0, 0 ,0), 3, 4);
+    cv::line(tmp, left_Point, end_down, cv::Scalar(0, 0 ,0), 3, 4);
 
     end_up = my_utils::getRotatedPoint(Point2d(right_x, maxY), ImgCenter_, posture_.angle - M_PI_2);
     end_down = my_utils::getRotatedPoint(Point2d(right_x, minY), ImgCenter_, posture_.angle - M_PI_2);
     right_Point = my_utils::getRotatedPoint(right_Point, ImgCenter_, posture_.angle - M_PI_2);
     
-    cv::line(tmp, right_Point, end_up, cv::Scalar(0, 0 ,0), 2, 4);
-    cv::line(tmp, right_Point, end_down, cv::Scalar(0, 0 ,0), 2, 4);
+    cv::line(tmp, right_Point, end_up, cv::Scalar(0, 0 ,0), 3, 4);
+    cv::line(tmp, right_Point, end_down, cv::Scalar(0, 0 ,0), 3, 4);
 
     // imshow("tmp", tmp);
     return getOriginalContour(tmp, true);
