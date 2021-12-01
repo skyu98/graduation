@@ -88,10 +88,11 @@ int main(int argc, char* argv[]) {
     // // 关闭Python
     // Py_Finalize();
     imgCropper cropper;
-    cropper.init();
+    cropper.init("../src/test");
     cropper.findModule("threshold");
     cropper.findFunc("display");
-    auto res = cropper.getCroppedImg(frame);
-
+    auto res = cropper.getCroppedBox(frame);
+    cout << res.first.x << endl; 
+    cout << res.second.y << endl; 
     return 0;
 }

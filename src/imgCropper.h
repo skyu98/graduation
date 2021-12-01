@@ -14,7 +14,7 @@ class imgCropper {
 public:
     imgCropper(){}
 
-    int init();
+    int init(const string& scriptPath = "./");
     int findModule(const string& scriptName);
     int findFunc(const string& funcName);
 
@@ -22,6 +22,8 @@ public:
 
     ~imgCropper();
 private:
+    string scriptPath_;
+
     PyObject* pyModule_;
     PyObject* pyFunc_;
 
@@ -29,7 +31,7 @@ private:
     Point bottomRight_;
 };
 
-int imgCropper::init() {
+int imgCropper::init(const string& scriptPath) {
     // 初始化Python
     Py_Initialize();
     // 检查初始化是否成功
@@ -38,8 +40,9 @@ int imgCropper::init() {
     }
     // 添加路径
     PyRun_SimpleString("import sys");
-    PyRun_SimpleString("sys.path.append('./')"); 
-    PyRun_SimpleString("sys.path.append('../src/test')");
+    PyRun_SimpleString("sys.path.append('./')");
+    string command = "sys.path.append('" + scriptPath +"')";
+    PyRun_SimpleString(command.c_str());
 
     import_array(); 
     cout << "Inited." << endl;
