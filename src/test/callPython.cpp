@@ -35,7 +35,7 @@ int init() {
 }
 
 int main(int argc, char* argv[]) {
-    string imgName = argc >=2 ? argv[1] : "1.jpg";
+    string imgName = argc >=2 ? argv[1] : "origin.jpg";
     cv::Mat image = imread(input_dir + imgName);
     Mat frame;
     cvtColor(image, frame, CV_RGB2GRAY);
@@ -88,11 +88,11 @@ int main(int argc, char* argv[]) {
     // // 关闭Python
     // Py_Finalize();
     imgCropper cropper;
-    cropper.init("../src/test");
-    cropper.findModule("threshold");
-    cropper.findFunc("display");
-    auto res = cropper.getCroppedBox(frame);
-    cout << res.first.x << endl; 
-    cout << res.second.y << endl; 
+    cropper.init("../yolo");
+    cropper.findModule("detect");
+    cropper.findFunc("findBox");
+    auto res = cropper.getCroppedBox(image);
+    // cout << res.first.x << endl; 
+    // cout << res.second.y << endl; 
     return 0;
 }

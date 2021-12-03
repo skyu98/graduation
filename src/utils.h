@@ -16,7 +16,7 @@ void ImageStretchByHistogram(const Mat& src, Mat & dst);
     @param inputPoint 需要旋转的点
     @param angle 顺时针为正，逆时针为负 
 */
-Point getRotatedPoint(Point inputPoint, Point center, double angle); 
+Point getRotatedPoint(const Point& inputPoint, const Point& center, double angle); 
 
 /** @brief 绕中心旋转图片并保持其原尺寸
     @param angle 顺时针为正，逆时针为负 

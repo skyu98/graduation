@@ -40,7 +40,7 @@ void splitStrToVec(const string& str, const string& split, vector<string>& vec) 
     }
 }
 
-Point getRotatedPoint(Point inputPoint, Point center, double angle) {
+Point getRotatedPoint(const Point& inputPoint, const Point& center, double angle) {
     Point rotatedPoint;
     rotatedPoint.x = (inputPoint.x - center.x) * cos(angle) - (inputPoint.y - center.y) * sin(angle) + center.x;
     rotatedPoint.y = (inputPoint.x - center.x) * sin(angle) + (inputPoint.y - center.y) * cos(angle) + center.y;
@@ -49,7 +49,7 @@ Point getRotatedPoint(Point inputPoint, Point center, double angle) {
 
 void putText(Mat& img, const string& text, Point textPos) {
 	Scalar textColor(0,0,255);
-	cv::putText(img, text.c_str(), textPos, CV_FONT_HERSHEY_SIMPLEX, 1, textColor, 2);
+	cv::putText(img, text.c_str(), textPos, cv::FONT_HERSHEY_SIMPLEX, 1, textColor, 2);
 }
 
 void morphology(Mat &imgIn, Mat &imgOut, int morpOp,
@@ -69,8 +69,9 @@ void diff(Mat& src, const Mat& mask, Mat& dst, int iterations) {
 
 // https://www.freesion.com/article/3908799093/
 void getKDE(const vector<int>& x_array, const vector<int>& data,  vector<double>& y, double bandwidth) {
-    auto gauss = [](double x)-> double{
-        return (1 / sqrt(2.0 * M_PI)) * exp(-0.5 * (x * x));
+    double delta = 1 / sqrt(2.0 * M_PI);
+    auto gauss = [&](double x)-> double{
+        return (delta) * exp(-0.5 * (x * x));
     };
 
     int N = data.size();

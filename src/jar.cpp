@@ -5,7 +5,47 @@ bool Jar::init(const string& imgName) {
 
     Mat src = imread(imgName);
     if(src.empty()) {
-        printf(" %s does not exist!!!\nPlease check the path...\n", imgName.c_str());
+        printf("%s does not exist!!!\nPlease check the path...\n", imgName.c_str());
+        return false;
+    }
+    cout << "Initializing....Please wait...." << endl;
+
+    Mat paint = src.clone();
+
+    srcImg_ = make_shared<const Mat>(src);
+    paintImg_ = make_shared<Mat>(paint);
+
+    state_ = kInited;    
+    return true;
+}
+
+bool Jar::init(const Mat& img) {
+    if(state_ > kNotInited) return true;
+
+    Mat src = img.clone();
+    if(src.empty()) {
+        printf("Input Img is Empty!!!\nPlease check the img...\n");
+        return false;
+    }
+    cout << "Initializing....Please wait...." << endl;
+
+    Mat paint = src.clone();
+
+    srcImg_ = make_shared<const Mat>(src);
+    paintImg_ = make_shared<Mat>(paint);
+
+    state_ = kInited;    
+    return true;
+}
+
+bool Jar::init(Mat&& img) {
+    if(state_ > kNotInited) return true;
+
+    Mat src(std::move(img));
+    img.data = nullptr;
+
+    if(src.empty()) {
+        printf("Input Img is Empty!!!\nPlease check the img...\n");
         return false;
     }
     cout << "Initializing....Please wait...." << endl;
@@ -102,19 +142,11 @@ void Jar::drawResult(const string& output) {
 
     // 在轮廓中点绘制小圆
     cv::circle(*paintImg_, posture_.center, 3, CV_RGB(100, 200, 255), 2);
-    //计算出直线，在主要方向上绘制直线
-    cv::line(*paintImg_, posture_.center, posture_.center + 800 * Point2d(cos(posture_.angle), sin(posture_.angle)) , CV_RGB(255, 125, 0), 2);
-    // 打印罐体信息
-    std::vector<string> vec = {"width :" + to_string(static_cast<int>(posture_.width)), 
-                            "height :" + to_string(static_cast<int>(posture_.height)),
-                            "angle :" + to_string(static_cast<int>(posture_.angle_double))};
 
-    int x = posture_.center.x, y = posture_.center.y, dy = 35;
-    for(int i = 0;i < vec.size();++i) {
-        my_utils::putText(*paintImg_, vec[i], Point(x, y + i * dy));
-    }
+    // 在主要方向上绘制直线
+    cv::line(*paintImg_, posture_.center, posture_.center + 800 * Point2d(cos(posture_.angle), sin(posture_.angle)) , CV_RGB(255, 125, 0), 2);
     
-    // 轮廓最小外接矩形
+    // 绘制轮廓最小外接矩形
     Rect rect = boundingRect(*rotatedContour_);
 
     RotatedRect rotated_rect((Point2f)rect.tl(),Point2f(rect.br().x,rect.tl().y),(Point2f)rect.br());
@@ -131,7 +163,17 @@ void Jar::drawResult(const string& output) {
         cv::line(*paintImg_, vertexes[i], vertexes[(i + 1) % 4], CV_RGB(100, 200, 255), 2, CV_AA);
     } 
 
-    /* 绘制出障碍所在位置 */
+    // 打印罐体姿态信息
+    std::vector<string> vec = {"width :" + to_string(static_cast<int>(posture_.width)), 
+                            "height :" + to_string(static_cast<int>(posture_.height)),
+                            "angle :" + to_string(static_cast<int>(posture_.angle_double))};
+
+    int x = posture_.center.x, y = posture_.center.y, dy = 35;
+    for(int i = 0;i < vec.size();++i) {
+        my_utils::putText(*paintImg_, vec[i], Point(x, y + i * dy));
+    }
+
+    // 标注出障碍所在位置
     for(auto& rotated_rect : obstructions_) {
         Point2f vertexes[4];
         rotated_rect.points(vertexes);
@@ -157,6 +199,7 @@ void Jar::preprocess() {
     // R - B 获得高光区域掩膜
     Mat diff(srcImg_->size(), CV_8UC1);
     cv::absdiff(channels[2], channels[0], diff);
+
     // 使用掩膜去除高光
     my_utils::diff(channels[2], diff, channels[2], 2);
 
@@ -176,8 +219,7 @@ int Jar::getGrayThreshold(const Mat& gray) {
     data.reserve(c_cols *  c_rows);
     for(int x = 0;x < c_cols;++x) {
         for(int y = 0;y < c_rows;++y) {
-            int val = static_cast<int>(cropped.ptr<uchar>(y)[x]);
-            data.push_back(val);
+            data.push_back(static_cast<int>(cropped.ptr<uchar>(y)[x]));
         }
     }
 
@@ -194,6 +236,7 @@ int Jar::getGrayThreshold(const Mat& gray) {
     int size = y.size();
     double extreme_max = y[0], extreme_min = 0;
     int extreme_max_idx = 0, extreme_min_idx = 0;
+
     // 寻找极大值和极小值
     for(int i = 1;i < size - 1;++i) {
         if(y[i] > y[i - 1] && y[i] > y[i + 1]) {
@@ -233,7 +276,7 @@ ContourPtr Jar::getOriginalContour(const Mat& gray, bool showContour, cv::Scalar
     // 获取轮廓
     vector<vector<Point> > contours;
     vector<Vec4i> hireachy;
-    cv::findContours(paddedImg, contours, hireachy, CV_RETR_LIST, CHAIN_APPROX_SIMPLE, Point());
+    cv::findContours(paddedImg, contours, hireachy, cv::RETR_LIST, CHAIN_APPROX_SIMPLE, Point());
 
     // 获取最大轮廓
     for (size_t t = 0; t < contours.size(); ++t) {

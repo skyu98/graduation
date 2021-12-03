@@ -17,8 +17,7 @@ public:
     int init(const string& scriptPath = "./");
     int findModule(const string& scriptName);
     int findFunc(const string& funcName);
-
-    pair<Point, Point> getCroppedBox(const Mat& src);
+    cv::Rect getCroppedBox(const Mat& src);
 
     ~imgCropper();
 private:
@@ -45,7 +44,7 @@ int imgCropper::init(const string& scriptPath) {
     PyRun_SimpleString(command.c_str());
 
     import_array(); 
-    cout << "Inited." << endl;
+    // cout << "Inited." << endl;
     return 0;
 }
 
@@ -55,7 +54,7 @@ int imgCropper::findModule(const string& scriptName) {
         printf("Can't find [%s].py!", scriptName.c_str());
         return -1;
     }
-    cout << "pyModule Found." << endl;
+    // cout << "pyModule Found." << endl;
     return 0;
 }
 
@@ -69,11 +68,11 @@ int imgCropper::findFunc(const string& funcName) {
         printf("Can't call function [%s]!", funcName.c_str());
         return -1;
     }
-    cout << "pyFunc Found." << endl;
+    // cout << "pyFunc Found." << endl;
     return 0;
 }
 
-pair<Point, Point> imgCropper::getCroppedBox(const Mat& src) {
+cv::Rect imgCropper::getCroppedBox(const Mat& src) {
     assert(src.isContinuous());
     assert(pyModule_ && pyFunc_);
 
@@ -86,11 +85,23 @@ pair<Point, Point> imgCropper::getCroppedBox(const Mat& src) {
     PyObject* pyReturn = PyEval_CallObject(pyFunc_, ArgArray);
 
     PyArg_ParseTuple(pyReturn, "iiii", &topLeft_.x, &topLeft_.y, &bottomRight_.x, &bottomRight_.y);
-    
+
     Py_DECREF(PyArray);
     Py_DECREF(ArgArray);
     Py_DECREF(pyReturn);
-    return {topLeft_, bottomRight_};
+
+    const int kGap = 20;
+
+    topLeft_.x = topLeft_.x > kGap ? topLeft_.x - kGap : 0;
+    topLeft_.y = topLeft_.y > kGap ? topLeft_.y - kGap : 0;
+
+    bottomRight_.x = bottomRight_.x + kGap < src.cols ? bottomRight_.x + kGap : src.cols;
+    bottomRight_.y = bottomRight_.y + kGap < src.rows ? bottomRight_.y + kGap : src.rows;
+
+
+    int width = bottomRight_.x - topLeft_.x, height = bottomRight_.y - topLeft_.y;
+    assert(width >= 0 && height >= 0);
+    return {topLeft_.x, topLeft_.y, width, height};
 }
 
 imgCropper::~imgCropper() {

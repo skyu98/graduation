@@ -34,8 +34,11 @@ class Jar {
     };
 
 public:
+
     Jar() = default;
     bool init(const string& imgName);
+    bool init(const Mat& img);
+    bool init(Mat&& img);
 
     Posture& getPosture();
     void getObstruction();
@@ -70,7 +73,10 @@ private:
         Down
     };
 
+    // 分析统计得到的宽度数据
     int handleWidths();
+
+    // 扫描查找障碍并框选
     void findAndMarkObstruction(Direction d = Left, int obstruction_threshold = 20);
 
 private:
