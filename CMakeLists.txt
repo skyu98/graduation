@@ -3,6 +3,10 @@ PROJECT(graduation C CXX)
 # requirement of cmake version
 cmake_minimum_required(VERSION 2.8)
 
+# if(NOT PYTHON_LIBRARY_DIRS)
+#     find_package(Python 3 REQUIRED)
+# endif()
+
 set(CXX_FLAGS
  -g
  # -DVALGRIND

@@ -73,6 +73,9 @@ Posture& Jar::getPosture() {
     cout << ">>> Getting Original Contour...." << endl;
     originalContour_ = getOriginalContour(*grayImg_, false);
 
+    // 平滑轮廓，使得下一步效果更好
+    smoothenContour(originalContour_, 8);
+
     // 根据轮廓进行Hough变换，得到罐体角度
     cout << ">>> Getting Orientation...." << endl;
     posture_.angle_double = getOrientation();;
@@ -87,6 +90,7 @@ Posture& Jar::getPosture() {
     // 根据得到的角度，画出边界竖线，使得边界上的标签不再联通   
     cout << ">>> Fixxing Original Contour...." << endl;
     fixedContour_ = fixContour();
+    smoothenContour(fixedContour_, 8);
 
     // 根据罐体角度，将图片和轮廓旋转为正
     cout << ">>> Getting Rotated Contour...." << endl;
@@ -99,8 +103,12 @@ Posture& Jar::getPosture() {
     // 统计扫描结果，可以得到主平均长度、罐体的旋转后中心、原始中心和上下边界点
     cout << ">>> Handling Widths...." << endl;
     posture_.width = handleWidths();
-    // cout << "The main average width of the jar is :" << posture_.width << endl;
-
+    if(posture_.width == -1) {
+        state_ = kError;
+        cout << "Error Occured!!" << endl;
+        return posture_;
+    }
+    
     state_ = kPostureGot;
     return posture_;
 }
@@ -205,11 +213,12 @@ void Jar::preprocess() {
 
     // 灰度图--CV_8UC1
     grayImg_ = make_shared<Mat>(std::move(channels[2]));
-    
+    imshow("gray", *grayImg_);
     // cv::GaussianBlur(*grayImg_, *grayImg_, Size(3, 3), 0, 0);
     // imshow("grayImg_", *grayImg_);
 }
 
+// https://stackoverflow.com/questions/35094454/how-would-one-use-kernel-density-estimation-as-a-1d-clustering-method-in-scikit
 int Jar::getGrayThreshold(const Mat& gray) {
     Mat cropped(Size(gray.rows / 5, gray.cols / 5), CV_8UC1);
     int c_cols = cropped.cols, c_rows = cropped.rows;
@@ -219,7 +228,7 @@ int Jar::getGrayThreshold(const Mat& gray) {
     data.reserve(c_cols *  c_rows);
     for(int x = 0;x < c_cols;++x) {
         for(int y = 0;y < c_rows;++y) {
-            data.push_back(static_cast<int>(cropped.ptr<uchar>(y)[x]));
+            data.push_back(static_cast<int>(cropped.ptr<uchar>(x)[y]));
         }
     }
 
@@ -251,12 +260,20 @@ int Jar::getGrayThreshold(const Mat& gray) {
     }
     // cout << extreme_max_idx << ", " << extreme_min_idx << endl;
 
-    double mid = extreme_min + (extreme_max - extreme_min) * 0.1;
-    double delta = mid / 10.0;
+    double mid = extreme_min + (extreme_max - extreme_min) * 0.05;
+    double delta = mid / 15.0;
+
+    int res = 43;
     for(int i = extreme_max_idx;i <= extreme_min_idx;++i) {
-        if(abs(y[i] - mid) < delta) return i;
+        if(abs(y[i] - mid) < delta) {
+            res = i;
+            break;
+        }
     }
-    return extreme_max_idx + ((extreme_min_idx - extreme_max_idx) >> 1);
+    res = max(res, 35);
+    res = min(res, 50);
+    return res;
+
 }
 
 ContourPtr Jar::getOriginalContour(const Mat& gray, bool showContour, cv::Scalar color) {
@@ -289,6 +306,66 @@ ContourPtr Jar::getOriginalContour(const Mat& gray, bool showContour, cv::Scalar
     } 
 }
 
+void Jar::smoothenContour(ContourPtr contour, int filterRadius) {
+    // contour smoothing parameters for gaussian filter
+    int filterSize = 2 * filterRadius + 1;
+
+    size_t size = contour->size();
+    size_t len = size + 2 * filterRadius;
+    size_t idx = size - filterRadius;
+    
+    vector<float> x, y;
+    for (size_t i = 0; i < len; i++) {
+        x.push_back((*contour)[(idx + i) % size].x);
+        y.push_back((*contour)[(idx + i) % size].y);
+    }
+    // filter 1-D signals
+    vector<float> xFilt, yFilt;
+    cv::medianBlur(x, xFilt, filterSize);
+    cv::medianBlur(y, yFilt, filterSize);
+
+    // build smoothed contour
+    for (size_t i = filterRadius; i < size + filterRadius; i++) {
+        (*contour)[i] = Point(xFilt[i], yFilt[i]);
+    }
+}
+
+double Jar::getRoughOrientationByPCA() {
+    size_t pointCount = originalContour_->size(); 
+    Mat pca_data = Mat(static_cast<int>(pointCount), 2, CV_64FC1); // n rows * 2 cols(x, y)
+
+    for(size_t i = 0;i < pointCount;++i) {
+        pca_data.ptr<double>(i)[0] = (*originalContour_)[i].x;
+        pca_data.ptr<double>(i)[1] = (*originalContour_)[i].y;
+    }
+
+    // Perform PCA
+    cv::PCA pca_analysis(pca_data, Mat(), CV_PCA_DATA_AS_ROW);
+    
+    // 2 eigenvectors/eigenvalues are enough
+    vector<Point2d> eigen_vecs(2);
+    vector<double> eigen_val(2);
+
+    for (size_t i = 0; i < 2; ++i) {
+        eigen_vecs[i] = Point2d(pca_analysis.eigenvectors.at<double>(i, 0),
+                                pca_analysis.eigenvectors.at<double>(i, 1));
+        eigen_val[i] = pca_analysis.eigenvalues.at<double>(i,0);
+    }
+
+    // Get the eigenvec angle, range: (-pi, pi]
+    double eigenvec_angle = atan2(eigen_vecs[0].y, eigen_vecs[0].x);
+    double eigenvec_angle_double = 180.0 * (eigenvec_angle) / M_PI;
+
+    if(eigenvec_angle_double > 90) {
+        eigenvec_angle_double -= 180;
+    }
+    else if(eigenvec_angle_double < -1 * 90) {
+        eigenvec_angle_double += 180;
+    }
+
+    return eigenvec_angle_double;
+}
+
 double Jar::getOrientation() {
     Mat onlyContours = cv::Mat::zeros(srcImg_->size(), CV_8UC1);;
     vector<vector<Point> > contours{*originalContour_};
@@ -306,7 +383,7 @@ double Jar::getOrientation() {
     // double minLineLength = 0 : 最小直线长度 
     // double maxLineGap = 0 : 最大间隔
     int iter_times = 0;
-    while(iter_times < 5 && lines_.size() < 8) {
+    while(iter_times < 5 && lines_.size() < 10) {
         lines_.clear();
         cv::HoughLinesP(onlyContours, lines_, 1, CV_PI / 180, 100, minLineLength, maxLineGap);
         minLineLength *= 0.9;
@@ -337,16 +414,15 @@ double Jar::getOrientation() {
         total += angle;
 	}
 
-    double rough_average = total / static_cast<double>(angles_.size());
+    double rough = getRoughOrientationByPCA();
     total = 0.0;
     int count = 0;
     for(double angle : angles_) {
-        if(abs(angle - rough_average) < 20.0) {
+        if(abs(angle - rough) < 20.0) {
             total += angle;
             ++count;
         }
     }
-
     return total / static_cast<double>(count);
 }
 
@@ -359,42 +435,33 @@ ContourPtr Jar::fixContour() {
     int size = lines_.size();
     int maxY = 0, minY = INT_MAX;
     int maxX = 0, minX = INT_MAX;
-
-    auto max_ = [](int x, int y, int z)->int {
-        int tmp = max(x, y);
-        return max(tmp, z);
-    };
-
-    auto min_ = [](int x, int y, int z)->int {
-        int tmp = min(x, y);
-        return min(tmp, z);
-    };
     
-    for(int i = 0;i < size && (abs(angles_[i] - posture_.angle_double) < 5.0);++i) {
+    for(int i = 0;i < size && (abs(angles_[i] - posture_.angle_double) < 10.0);++i) {
         Vec4d& line = lines_[i];
-        Point A(line[0], line[1]);
-        Point B(line[2], line[3]);
-        
-        A = my_utils::getRotatedPoint(A, ImgCenter_, M_PI_2 - posture_.angle);
-        B = my_utils::getRotatedPoint(B, ImgCenter_, M_PI_2 - posture_.angle);
+        Point A = my_utils::getRotatedPoint(Point((line[0] + line[2]) / 2, (line[1] + line[3]) / 2),
+                                        ImgCenter_, M_PI_2 - posture_.angle);
 
-        maxX = max_(maxX, A.x, B.x);
-        minX = min_(minX, A.x, B.x);
-
-        maxY = max_(maxY, A.y, B.y);
-        minY = min_(minY, A.y, B.y);
+        maxX = max(maxX, A.x);
+        minX = min(minX, A.x);
     }
-    maxY += 10;
-    minY -= 10;
+
+    for(const Point& p : *originalContour_) {
+        Point rotated_point = my_utils::getRotatedPoint(p, ImgCenter_, M_PI_2 - posture_.angle);
+        maxY = max(maxY, rotated_point.y);
+        minY = min(minY, rotated_point.y);
+    }
+    maxY -= 80;
+    minY += 80;
 
     int average_x = minX + ((maxX - minX) >> 1);
     int left_x = 0, right_x = 0;
     int left_count = 0, right_count = 0;
 
-    for(int i = 0;i < size && (abs(angles_[i] - posture_.angle_double) < 5.0);++i) {
+    for(int i = 0;i < size && (abs(angles_[i] - posture_.angle_double) < 10.0);++i) {
         Vec4d& line = lines_[i];
-        Point2d A((line[0] + line[2]) / 2.0, (line[1] + line[3]) / 2.0);
+        // cv::line(*paintImg_, Point(line[0], line[1]), Point(line[2], line[3]), Scalar(255, 255, 0), 2, LINE_AA);
 
+        Point2d A((line[0] + line[2]) / 2.0, (line[1] + line[3]) / 2.0);
         Point rotated_A = my_utils::getRotatedPoint(A, ImgCenter_, M_PI_2 - posture_.angle);
     
         // left
@@ -408,25 +475,31 @@ ContourPtr Jar::fixContour() {
             ++right_count;
         } 
     }
-    left_x /= left_count;
-    left_x += 10;
-    right_x /= right_count;
-    right_x -=10;
 
-    Point left_Point(left_x, minY + (maxY - minY) / 2), right_Point(right_x, minY + (maxY - minY) / 2);
-    Point2d end_up = my_utils::getRotatedPoint(Point2d(left_x, maxY), ImgCenter_, posture_.angle - M_PI_2);
-    Point2d end_down = my_utils::getRotatedPoint(Point2d(left_x, minY), ImgCenter_, posture_.angle - M_PI_2);
-    left_Point = my_utils::getRotatedPoint(left_Point, ImgCenter_, posture_.angle - M_PI_2);
+    if(left_count > 0) {
+        left_x /= left_count;
+        left_x += 10;
 
-    cv::line(tmp, left_Point, end_up, cv::Scalar(0, 0 ,0), 3, 4);
-    cv::line(tmp, left_Point, end_down, cv::Scalar(0, 0 ,0), 3, 4);
+        Point left_Point(left_x, minY + (maxY - minY) / 2);
+        Point2d end_up = my_utils::getRotatedPoint(Point2d(left_x, maxY), ImgCenter_, posture_.angle - M_PI_2);
+        Point2d end_down = my_utils::getRotatedPoint(Point2d(left_x, minY), ImgCenter_, posture_.angle - M_PI_2);
+        left_Point = my_utils::getRotatedPoint(left_Point, ImgCenter_, posture_.angle - M_PI_2);
 
-    end_up = my_utils::getRotatedPoint(Point2d(right_x, maxY), ImgCenter_, posture_.angle - M_PI_2);
-    end_down = my_utils::getRotatedPoint(Point2d(right_x, minY), ImgCenter_, posture_.angle - M_PI_2);
-    right_Point = my_utils::getRotatedPoint(right_Point, ImgCenter_, posture_.angle - M_PI_2);
-    
-    cv::line(tmp, right_Point, end_up, cv::Scalar(0, 0 ,0), 3, 4);
-    cv::line(tmp, right_Point, end_down, cv::Scalar(0, 0 ,0), 3, 4);
+        cv::line(tmp, left_Point, end_up, cv::Scalar(0, 0 ,0), 2, 4);
+        cv::line(tmp, left_Point, end_down, cv::Scalar(0, 0 ,0), 2, 4);
+    }
+    if(right_count > 0) {
+        right_x /= right_count;
+        right_x -= 10;
+
+        Point right_Point(right_x, minY + (maxY - minY) / 2);
+        Point2d end_up = my_utils::getRotatedPoint(Point2d(right_x, maxY), ImgCenter_, posture_.angle - M_PI_2);
+        Point2d end_down = my_utils::getRotatedPoint(Point2d(right_x, minY), ImgCenter_, posture_.angle - M_PI_2);
+        right_Point = my_utils::getRotatedPoint(right_Point, ImgCenter_, posture_.angle - M_PI_2);
+        
+        cv::line(tmp, right_Point, end_up, cv::Scalar(0, 0 ,0), 3, 4);
+        cv::line(tmp, right_Point, end_down, cv::Scalar(0, 0 ,0), 3, 4);
+    }
 
     // imshow("tmp", tmp);
     return getOriginalContour(tmp, true);
@@ -496,6 +569,7 @@ void Jar::scanContour(const Mat& img, const std::vector<Point>& contour) {
 }
 
 int Jar::handleWidths() {
+    if(widthsCount_.empty()) return -1;
     typedef pair<int, int> WidthAndCount;
 
     struct Compare_WidthAndCount {
@@ -523,6 +597,7 @@ int Jar::handleWidths() {
     }
 
     auto averageOfBoundsVec = [&](const std::vector<Bounds>& vec)->int{
+        if(vec.empty()) return 0;
         int average = 0;
         for(const Bounds& bounds : vec) {
             average += bounds.first + ((bounds.second - bounds.first) >> 1);

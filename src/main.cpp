@@ -10,13 +10,18 @@
 using namespace std;
 using namespace cv;
 
-string input_dir = "../imgs/input_imgs/";
+string input_dir = "../imgs/raw_imgs/";
 string output_dir = "../imgs/output_imgs/";
 
 int main(int argc, char* argv[]) {
-    string imgName = argc >=2 ? argv[1] : "origin.jpg";
+    string imgName = argc >= 2 ? argv[1] : "origin.jpg";
     Mat img = cv::imread(input_dir + imgName);
-    imshow("origin", img);
+    if(img.empty()) {
+        printf("%s does not exist!!!\nPlease check the path...\n", imgName.c_str());
+        return -1;
+    }
+    // imshow("origin", img);
+    // waitKey(0);
 
     auto start = std::chrono::high_resolution_clock::now();
 

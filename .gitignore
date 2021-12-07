@@ -38,3 +38,4 @@
 *bin/
 *__pycache__
 *.pt
+*_imgs

@@ -30,7 +30,8 @@ class Jar {
         kInited,
         kPostureGot,
         kObstructionFound,
-        kFinished
+        kFinished,
+        kError
     };
 
 public:
@@ -54,7 +55,13 @@ private:
     // 获取罐体的原始轮廓
     ContourPtr getOriginalContour(const Mat& gray, bool showContour = false, cv::Scalar color = CV_RGB(200, 150, 200));
 
-    // 获取罐体与x轴正向的夹角，顺时针为正，[-90, 90]
+    // 平滑轮廓
+    void smoothenContour(ContourPtr contour, int filterRadius = 5);
+
+    // 获取罐体与x轴正向的粗略夹角，顺时针为正，[-90, 90]
+    double getRoughOrientationByPCA();
+
+    // 获取罐体与x轴正向的精确夹角，顺时针为正，[-90, 90]
     double getOrientation();
 
     // 有可能有标签与背景联通的情况，进行填补修正
