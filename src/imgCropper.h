@@ -76,9 +76,13 @@ cv::Rect imgCropper::getCroppedBox(const Mat& src) {
     assert(src.isContinuous());
     assert(pyModule_ && pyFunc_);
 
-	npy_intp dim_np[]{src.rows, src.cols, src.channels()};
+	// npy_intp dim_np[] = {src.rows, src.cols, src.channels()};
+    npy_intp* dim_np = new npy_intp[]{src.rows, src.cols, src.channels()};
+
     // 构造参数
-    PyObject* PyArray  = PyArray_SimpleNewFromData(sizeof(dim_np) / sizeof(npy_intp), dim_np, NPY_UBYTE, 
+    // PyObject* PyArray = PyArray_SimpleNewFromData(sizeof(dim_np) / sizeof(npy_intp), dim_np, NPY_UBYTE, 
+    //                                                 static_cast<void*>(src.data));
+    PyObject* PyArray = PyArray_SimpleNewFromData(3, dim_np, NPY_UBYTE, 
                                                     static_cast<void*>(src.data));
     PyObject* ArgArray = PyTuple_New(1); //同样定义大小与Python函数参数个数一致的PyTuple对象
     PyTuple_SetItem(ArgArray, 0, PyArray); 
@@ -89,9 +93,10 @@ cv::Rect imgCropper::getCroppedBox(const Mat& src) {
     Py_DECREF(PyArray);
     Py_DECREF(ArgArray);
     Py_DECREF(pyReturn);
+    delete[] dim_np;
+
 
     const int kGap = 20;
-
     topLeft_.x = topLeft_.x > kGap ? topLeft_.x - kGap : 0;
     topLeft_.y = topLeft_.y > kGap ? topLeft_.y - kGap : 0;
 

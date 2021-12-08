@@ -18,3 +18,5 @@ target_link_libraries(callPython ${OpenCV_LIBS} python3.7m) #
 
 add_executable(findThreshold findThreshold.cpp)
 target_link_libraries(findThreshold ${OpenCV_LIBS})
+
+add_executable(testVec testVec.cpp)

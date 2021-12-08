@@ -1,5 +1,15 @@
 #include "jar.h"
 
+namespace Color {
+    cv::Scalar RED(0, 0, 255);
+    cv::Scalar BLUE(255, 0, 0);
+    cv::Scalar WHITE(255);
+    cv::Scalar BLACK(0);
+    cv::Scalar CYAN(255, 255, 0); // 青色
+    cv::Scalar ORANGE(25, 165, 255);
+    cv::Scalar PINK(200, 150, 200);
+};
+
 bool Jar::init(const string& imgName) {
     if(state_ > kNotInited) return true;
 
@@ -67,11 +77,11 @@ Posture& Jar::getPosture() {
 
     cout << "Getting Gray Threshold...." << endl;
     grayThreshold_ = getGrayThreshold(*grayImg_);
-    cout << grayThreshold_ << endl;
+    // cout << grayThreshold_ << endl;
 
     // 得到原始的轮廓
     cout << ">>> Getting Original Contour...." << endl;
-    originalContour_ = getOriginalContour(*grayImg_, false);
+    originalContour_ = getOriginalContour(true);
 
     // 平滑轮廓，使得下一步效果更好
     smoothenContour(originalContour_, 8);
@@ -122,8 +132,8 @@ void Jar::getObstruction() {
     if(state_ >= kObstructionFound) return;
     cout << "Finding Obstruction...." << endl;
 
-    findAndMarkObstruction(Left, posture_.width / 25);
-    findAndMarkObstruction(Right, posture_.width / 25);
+    findAndMarkObstruction(Left, posture_.width / 30);
+    findAndMarkObstruction(Right, posture_.width / 30);
 
     cout << "Finished!Found " << obstructions_.size() << " obstruction(s)!" << endl;
 
@@ -138,21 +148,18 @@ void Jar::getObstruction() {
     state_ = kObstructionFound;
 }
 
-void Jar::drawResult(const string& output) {
+void Jar::drawResult(const string& output, bool showResult) {
     if(state_ < kPostureGot) {
         cout << "Please get Posture/Obstruction first...." << endl;
         return;
     }
     cout << "Drawing Result...." << endl;
-    
-    // Draw the principal components
-    // cv::circle(*rotatedGrayImg_, rotatedCenter_, 3, CV_RGB(255, 255, 255), 2);
 
     // 在轮廓中点绘制小圆
-    cv::circle(*paintImg_, posture_.center, 3, CV_RGB(100, 200, 255), 2);
+    cv::circle(*paintImg_, posture_.center, 3, Color::CYAN, 2);
 
     // 在主要方向上绘制直线
-    cv::line(*paintImg_, posture_.center, posture_.center + 800 * Point2d(cos(posture_.angle), sin(posture_.angle)) , CV_RGB(255, 125, 0), 2);
+    cv::line(*paintImg_, posture_.center, posture_.center + 800 * Point2d(cos(posture_.angle), sin(posture_.angle)) , Color::ORANGE, 2);
     
     // 绘制轮廓最小外接矩形
     Rect rect = boundingRect(*rotatedContour_);
@@ -168,7 +175,7 @@ void Jar::drawResult(const string& output) {
     }
 
     for (int i = 0; i < 4; i++) {
-        cv::line(*paintImg_, vertexes[i], vertexes[(i + 1) % 4], CV_RGB(100, 200, 255), 2, CV_AA);
+        cv::line(*paintImg_, vertexes[i], vertexes[(i + 1) % 4], Color::CYAN, 2, CV_AA);
     } 
 
     // 打印罐体姿态信息
@@ -191,8 +198,12 @@ void Jar::drawResult(const string& output) {
         }
     }
 
-    imshow("Result", *paintImg_);
-    waitKey(0);
+    if(showResult) {
+        imshow("Result", *paintImg_);
+        waitKey(0);
+    }
+
+    cout << "Saving result...." << endl;
     imwrite(output, *paintImg_);
     state_ = kFinished;
 }
@@ -213,7 +224,6 @@ void Jar::preprocess() {
 
     // 灰度图--CV_8UC1
     grayImg_ = make_shared<Mat>(std::move(channels[2]));
-    imshow("gray", *grayImg_);
     // cv::GaussianBlur(*grayImg_, *grayImg_, Size(3, 3), 0, 0);
     // imshow("grayImg_", *grayImg_);
 }
@@ -260,7 +270,7 @@ int Jar::getGrayThreshold(const Mat& gray) {
     }
     // cout << extreme_max_idx << ", " << extreme_min_idx << endl;
 
-    double mid = extreme_min + (extreme_max - extreme_min) * 0.05;
+    double mid = extreme_min + (extreme_max - extreme_min) * 0.045;
     double delta = mid / 15.0;
 
     int res = 43;
@@ -276,34 +286,46 @@ int Jar::getGrayThreshold(const Mat& gray) {
 
 }
 
-ContourPtr Jar::getOriginalContour(const Mat& gray, bool showContour, cv::Scalar color) {
-    // 灰度图二值化
-    Mat binaryImg(srcImg_->size(), CV_8UC1);
-    // 0 - black 255 - white
-    cv::threshold(gray, binaryImg, grayThreshold_, 255, THRESH_BINARY);
-
-    // // 使用 ERODE 方式 让目标外扩一些
-    // my_utils::morphology(binaryImg, binaryImg, MORPH_DILATE, 5);
-    my_utils::morphology(binaryImg, binaryImg, MORPH_ERODE, 15);
-    
-    // 图片各方向填充一个像素，避免边缘的线条被识别为轮廓
-    Mat paddedImg;
-    cv::copyMakeBorder(binaryImg, paddedImg, 1, 1, 1, 1, BORDER_CONSTANT, 255);
-
-    // 获取轮廓
+ContourPtr Jar::getContour(const Mat& gray) {
     vector<vector<Point> > contours;
     vector<Vec4i> hireachy;
-    cv::findContours(paddedImg, contours, hireachy, cv::RETR_LIST, CHAIN_APPROX_SIMPLE, Point());
+    cv::findContours(gray, contours, hireachy, cv::RETR_LIST, CHAIN_APPROX_SIMPLE, Point());
 
     // 获取最大轮廓
     for (size_t t = 0; t < contours.size(); ++t) {
         Rect rect = boundingRect(contours[t]);
-        if(rect.width < paintImg_->cols / 2) continue;
-        if(showContour) {
-            drawContours(*paintImg_, contours, static_cast<int>(t), color, 2, 8);
-        }
-        return make_shared<vector<Point> >(std::move(contours[t]));
+        if(rect.width < gray.cols / 2) continue;
+
+        return make_shared<vector<Point> >(contours[t]);
     } 
+}
+
+void Jar::drawContour(ContourPtr contour, Mat& paintImg, cv::Scalar color, bool fill) {
+    vector<vector<Point> > contours{*contour};
+    int thickness = fill ? cv::FILLED : 2;
+    cv::drawContours(paintImg, contours, 0, color, thickness, 8);
+}
+
+ContourPtr Jar::getOriginalContour(bool showContour, cv::Scalar color) {
+    // 灰度图二值化
+    Mat binaryImg(srcImg_->size(), CV_8UC1);
+    // 0 - black 255 - white
+    cv::threshold(*grayImg_, binaryImg, grayThreshold_, 255, THRESH_BINARY);
+
+    // // 使用 ERODE 方式 让目标外扩一些
+    // my_utils::morphology(binaryImg, binaryImg, MORPH_DILATE, 5);
+    my_utils::morphology(binaryImg, binaryImg, MORPH_ERODE, 12);
+    
+    // 图片各方向填充一个像素，避免边缘的线条被识别为轮廓
+    Mat paddedImg;
+    cv::copyMakeBorder(binaryImg, paddedImg, 1, 1, 1, 1, BORDER_CONSTANT, Color::WHITE);
+
+    // 获取轮廓
+    auto contour = getContour(paddedImg);
+    if(showContour) {
+        drawContour(contour, *paintImg_);
+    }
+    return contour;
 }
 
 void Jar::smoothenContour(ContourPtr contour, int filterRadius) {
@@ -369,7 +391,7 @@ double Jar::getRoughOrientationByPCA() {
 double Jar::getOrientation() {
     Mat onlyContours = cv::Mat::zeros(srcImg_->size(), CV_8UC1);;
     vector<vector<Point> > contours{*originalContour_};
-    drawContours(onlyContours, contours, 0, CV_RGB(255, 255, 255), 2, 8);
+    drawContours(onlyContours, contours, 0, Color::WHITE, 2, 8);
 
     double len = arcLength(*originalContour_, true);
     double minLineLength = len / 30.0;
@@ -408,7 +430,7 @@ double Jar::getOrientation() {
     angles_.reserve(lines_.size());
     double total = 0.0;
 	for (const auto& line : lines_) {
-		// cv::line(*paintImg_, Point(line[0], line[1]), Point(line[2], line[3]), Scalar(255, 255, 0), 2, LINE_AA);
+		// cv::line(*paintImg_, Point(line[0], line[1]), Point(line[2], line[3]), Color::CYAN, 2, LINE_AA);
         double angle = getAngle(line);
         angles_.push_back(angle);
         total += angle;
@@ -418,7 +440,9 @@ double Jar::getOrientation() {
     total = 0.0;
     int count = 0;
     for(double angle : angles_) {
-        if(abs(angle - rough) < 20.0) {
+        double delta = abs(angle - rough);
+        // 二者可能成小锐角（0， 20） 或者 大钝角（160， 180）
+        if(delta < 20.0 || delta > 160.0) {
             total += angle;
             ++count;
         }
@@ -429,8 +453,6 @@ double Jar::getOrientation() {
 ContourPtr Jar::fixContour() {
     /* 旋转图片 */
     ImgCenter_ = Point(srcImg_->cols / 2, srcImg_->rows / 2);
-
-    Mat tmp = grayImg_->clone();
 
     int size = lines_.size();
     int maxY = 0, minY = INT_MAX;
@@ -446,12 +468,11 @@ ContourPtr Jar::fixContour() {
     }
 
     for(const Point& p : *originalContour_) {
-        Point rotated_point = my_utils::getRotatedPoint(p, ImgCenter_, M_PI_2 - posture_.angle);
+        Point rotated_point = my_utils::getRotatedPoint(p, ImgCenter_, 
+                                        M_PI_2 - posture_.angle);
         maxY = max(maxY, rotated_point.y);
         minY = min(minY, rotated_point.y);
     }
-    maxY -= 80;
-    minY += 80;
 
     int average_x = minX + ((maxX - minX) >> 1);
     int left_x = 0, right_x = 0;
@@ -459,7 +480,7 @@ ContourPtr Jar::fixContour() {
 
     for(int i = 0;i < size && (abs(angles_[i] - posture_.angle_double) < 10.0);++i) {
         Vec4d& line = lines_[i];
-        // cv::line(*paintImg_, Point(line[0], line[1]), Point(line[2], line[3]), Scalar(255, 255, 0), 2, LINE_AA);
+        // cv::line(*paintImg_, Point(line[0], line[1]), Point(line[2], line[3]), Color::CYAN, 2, LINE_AA);
 
         Point2d A((line[0] + line[2]) / 2.0, (line[1] + line[3]) / 2.0);
         Point rotated_A = my_utils::getRotatedPoint(A, ImgCenter_, M_PI_2 - posture_.angle);
@@ -476,33 +497,52 @@ ContourPtr Jar::fixContour() {
         } 
     }
 
+    // 在轮廓上补上直线
+    Mat onlyContours = cv::Mat(srcImg_->size(), CV_8UC1, Color::WHITE);
+    drawContour(originalContour_, onlyContours, Color::BLACK, true);
+
+    auto addLine = [&](int x)->void{
+        Point start(x, minY + (maxY - minY) / 2);
+
+        Point end_up = my_utils::getRotatedPoint(Point2d(x, minY), ImgCenter_, 
+                                                posture_.angle - M_PI_2);
+
+        Point end_down = my_utils::getRotatedPoint(Point2d(x, maxY), ImgCenter_,
+                                                posture_.angle - M_PI_2);
+    
+        end_up.x = max(10, end_up.x);
+        end_up.x = min(srcImg_->cols - 10, end_up.x);
+
+        end_up.y = max(10, end_up.y);
+        end_up.y = min(srcImg_->rows - 10, end_up.y);
+
+        end_down.x = max(10, end_down.x);
+        end_down.x = min(srcImg_->cols - 10, end_down.x);
+
+        end_down.y = max(10, end_down.y);
+        end_down.y = min(srcImg_->rows - 10, end_down.y);
+
+        start = my_utils::getRotatedPoint(start, ImgCenter_, posture_.angle - M_PI_2);
+
+        cv::line(onlyContours, start, end_up, Color::BLACK, 2, 4);
+        cv::line(onlyContours, start, end_down, Color::BLACK, 2, 4);
+    };
+
     if(left_count > 0) {
         left_x /= left_count;
         left_x += 10;
-
-        Point left_Point(left_x, minY + (maxY - minY) / 2);
-        Point2d end_up = my_utils::getRotatedPoint(Point2d(left_x, maxY), ImgCenter_, posture_.angle - M_PI_2);
-        Point2d end_down = my_utils::getRotatedPoint(Point2d(left_x, minY), ImgCenter_, posture_.angle - M_PI_2);
-        left_Point = my_utils::getRotatedPoint(left_Point, ImgCenter_, posture_.angle - M_PI_2);
-
-        cv::line(tmp, left_Point, end_up, cv::Scalar(0, 0 ,0), 2, 4);
-        cv::line(tmp, left_Point, end_down, cv::Scalar(0, 0 ,0), 2, 4);
+        addLine(left_x);
     }
     if(right_count > 0) {
         right_x /= right_count;
         right_x -= 10;
-
-        Point right_Point(right_x, minY + (maxY - minY) / 2);
-        Point2d end_up = my_utils::getRotatedPoint(Point2d(right_x, maxY), ImgCenter_, posture_.angle - M_PI_2);
-        Point2d end_down = my_utils::getRotatedPoint(Point2d(right_x, minY), ImgCenter_, posture_.angle - M_PI_2);
-        right_Point = my_utils::getRotatedPoint(right_Point, ImgCenter_, posture_.angle - M_PI_2);
-        
-        cv::line(tmp, right_Point, end_up, cv::Scalar(0, 0 ,0), 3, 4);
-        cv::line(tmp, right_Point, end_down, cv::Scalar(0, 0 ,0), 3, 4);
+        addLine(right_x);
     }
 
-    // imshow("tmp", tmp);
-    return getOriginalContour(tmp, true);
+    auto contour = getContour(onlyContours);
+    // drawContour(contour, *paintImg_);
+    // imshow("tmp", onlyContours);
+    return contour;
 }
 
 ContourPtr Jar::getRotatedContour(ContourPtr contour, double angle) {
@@ -635,6 +675,12 @@ int Jar::handleWidths() {
 void Jar::findAndMarkObstruction(Direction direction, int obstruction_threshold) {
     int up_bound = verticalBounds_.first, down_bound = verticalBounds_.second;
     int mainWidth = posture_.width;
+
+    // int l = (rotatedCenter_.x -  (mainWidth / 2)) - obstruction_threshold;
+    // int r = (rotatedCenter_.x +  (mainWidth / 2)) + obstruction_threshold;
+    // cv::line(*rotatedGrayImg_, Point(l, up_bound), Point(l, down_bound), Scalar(0,200,255), 2, 4);
+    // cv::line(*rotatedGrayImg_, Point(r, up_bound), Point(r, down_bound), Scalar(0,200,255), 2, 4);
+    // imshow("bounds", *rotatedGrayImg_);
 
     auto isObstruction = [&](int curY)->bool{
         int width = boundsOfY_[curY].second - boundsOfY_[curY].first;

@@ -43,7 +43,7 @@ public:
 
     Posture& getPosture();
     void getObstruction();
-    void drawResult(const string& output);
+    void drawResult(const string& output, bool showResult = true);
 
 private:
     // 预处理罐体图片（滤波、去除高光等）
@@ -52,8 +52,12 @@ private:
     // 通过直方图获取灰度阈值
     int getGrayThreshold(const Mat& gray);
 
+    // 给定灰度图，获取最大轮廓
+    ContourPtr getContour(const Mat& gray);
+    void drawContour(ContourPtr contour, Mat& paintImg, cv::Scalar color = cv::Scalar(200, 150, 200), bool fill = false);
+
     // 获取罐体的原始轮廓
-    ContourPtr getOriginalContour(const Mat& gray, bool showContour = false, cv::Scalar color = CV_RGB(200, 150, 200));
+    ContourPtr getOriginalContour(bool showContour = false, cv::Scalar color = cv::Scalar(200, 150, 200));
 
     // 平滑轮廓
     void smoothenContour(ContourPtr contour, int filterRadius = 5);
@@ -95,7 +99,7 @@ private:
     ConstImgPtr srcImg_; // 用于像素处理的图，内容保持不变
     ImgPtr paintImg_; // 用于展示结果的图
     ImgPtr grayImg_; // 预处理得到的灰度图
-    int  grayThreshold_ = 43; // 灰度图核密度估计结果
+    int grayThreshold_ = 43; // 灰度图核密度估计结果
     ContourPtr originalContour_; // 原始灰度图得到的轮廓
 
     /* Hough变换检测出的直线及角度 */

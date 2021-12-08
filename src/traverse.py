@@ -1,5 +1,7 @@
 import glob
 import os
+import warnings
+warnings.filterwarnings("ignore")
 
 dir = '../imgs/raw_imgs'#存放图片的文件夹路径
 imgs = glob.glob(os.path.join(dir, '*.jpg'))

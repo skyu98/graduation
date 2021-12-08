@@ -1,11 +1,5 @@
-from sys import platform
-
 from models import *  # set ONNX_EXPORT in models.py
-from utils.datasets import *
-from utils.utils import *
-
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+from utils.datasets import letterbox
 
 @torch.no_grad()
 def findBox(img0):
@@ -71,14 +65,9 @@ def findBox(img0):
             # print("Jar Not Found.")
             return (0, 0, 0, 0)
 
-        # Stream results
-        if view_img:
-            cv2.imshow('res', img0)
+        # # Stream results
+        # if view_img:
+        #     cv2.imshow('res', img0)
 
     # print('Done. (%.3fs)' % (time.time() - t0))
     return tuple(res[:4])
-
-
-
-# img0 = cv2.imread('../imgs/input_imgs/origin.jpg')
-# findBox(img0)

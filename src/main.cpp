@@ -52,6 +52,6 @@ int main(int argc, char* argv[]) {
 	timeUsed = end - start;
 	cout << "Time used : " << timeUsed.count() << " ms" << endl;
 
-    jar.drawResult(output_dir + imgName);
+    jar.drawResult(output_dir + imgName, false);
     return 0;
 }
