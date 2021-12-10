@@ -3,6 +3,9 @@
 namespace my_utils {
 
 // https://blog.csdn.net/wsp_1138886114/article/details/118694938
+/** @brief 绕中心旋转图片并保持其原尺寸
+    @param angle 顺时针为正，逆时针为负 
+*/
 Mat rotateImage(const Mat& image, double angle, int flag) {
 	Mat dst, M;
 	int h = image.rows;
@@ -27,19 +30,10 @@ Mat rotateImage(const Mat& image, double angle, int flag) {
 	return dst;
 }
 
-void splitStrToVec(const string& str, const string& split, vector<string>& vec) {
-    size_t beg = 0, end = str.find(split);
-    size_t len = split.size();
-    while (end != string::npos) {
-        vec.emplace_back(str.substr(beg, end - beg));
-        beg = end + len;
-        end = str.find(split, beg);
-    }  
-    if(beg != str.size()) {
-        vec.emplace_back(str.substr(beg));
-    }
-}
-
+/** @brief 获得单个点经过旋转后所在精确坐标
+    @param inputPoint 需要旋转的点
+    @param angle 顺时针为正，逆时针为负 
+*/
 Point getRotatedPoint(const Point& inputPoint, const Point& center, double angle) {
     Point rotatedPoint;
     rotatedPoint.x = (inputPoint.x - center.x) * cos(angle) - (inputPoint.y - center.y) * sin(angle) + center.x;
@@ -83,6 +77,45 @@ void getKDE(const vector<int>& x_array, const vector<int>& data,  vector<double>
         }
         res /= tmp;
         y.push_back(res);
+    }
+}
+
+void traverseFolder(const char* pInputPath, std::vector<string>& fileNames) {
+    DIR* dir = opendir(pInputPath);
+    if (!dir) {
+        printf("No such dir!\n");
+        return;
+    }
+    char name[512];
+    
+    struct dirent *pEntry;
+    while ((pEntry = readdir(dir))) {
+        // 跳过. .. 等 和文件夹
+        if((strncmp(pEntry->d_name, ".", 1) == 0) || (pEntry->d_type & DT_DIR)){
+            continue;
+        }
+        
+        memset(name, 0, sizeof(name));
+        if(pEntry->d_type & DT_REG) {
+            fileNames.push_back(pEntry->d_name);
+        }
+    }
+}
+
+void writeResultToFile(const FILE* file, const char* msg) {
+    
+}
+
+void splitStrToVec(const string& str, const string& split, vector<string>& vec) {
+    size_t beg = 0, end = str.find(split);
+    size_t len = split.size();
+    while (end != string::npos) {
+        vec.emplace_back(str.substr(beg, end - beg));
+        beg = end + len;
+        end = str.find(split, beg);
+    }  
+    if(beg != str.size()) {
+        vec.emplace_back(str.substr(beg));
     }
 }
 

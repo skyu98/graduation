@@ -12,11 +12,11 @@ using namespace cv;
 typedef struct {
     Point2d center;
 
-    double angle;
-    double angle_double;
-
     int width;
     int height;
+
+    double angle;
+    double angle_double;
 } Posture;
 
 using ContourPtr = std::shared_ptr<vector<Point> >;
@@ -35,15 +35,19 @@ class Jar {
     };
 
 public:
-
     Jar() = default;
+    Jar(const string& imgName, Point topLeft)
+        : imgName_(imgName),
+          basePointOffset_(topLeft) {}
+
     bool init(const string& imgName);
     bool init(const Mat& img);
     bool init(Mat&& img);
 
     Posture& getPosture();
     void getObstruction();
-    void drawResult(const string& output, bool showResult = true);
+    void drawResult(const string& output, bool showResult = true) const;
+    void writResult(FILE* file) const;
 
 private:
     // 预处理罐体图片（滤波、去除高光等）
@@ -91,7 +95,9 @@ private:
     void findAndMarkObstruction(Direction d = Left, int obstruction_threshold = 20);
 
 private:
-    State state_ = kNotInited;
+    Point basePointOffset_; // 该罐体图片相对于原始图片的偏移（也就是ROI的左上角）
+    string imgName_;
+    mutable State state_ = kNotInited;
     Point ImgCenter_;
     Posture posture_; 
     
@@ -116,7 +122,7 @@ private:
     int delta_row_ = 0; // 旋转后的坐标在y的偏移值
 
     /* 扫描记录 */
-    std::unordered_map<int, Bounds> boundsOfY_; // key:Y轴坐标 val：罐体在该Y值下的左右边界;
+    std::map<int, Bounds> boundsOfY_; // key:Y轴坐标 val：罐体在该Y值下的左右边界;
     std::unordered_map<int, std::vector<Bounds> > allBoundsOfWidth_; // 每个宽度对应的Y值左右边界
     std::unordered_map<int, int> widthsCount_; // 每个宽度出现的次数
     

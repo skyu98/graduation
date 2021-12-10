@@ -37,5 +37,7 @@
 *build/
 *bin/
 *__pycache__
+*.weights
 *.pt
 *_imgs
+*3rdParty/

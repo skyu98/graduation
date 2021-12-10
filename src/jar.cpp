@@ -75,19 +75,16 @@ Posture& Jar::getPosture() {
 
     preprocess();
 
-    cout << "Getting Gray Threshold...." << endl;
+    // cout << "Getting Gray Threshold...." << endl;
     grayThreshold_ = getGrayThreshold(*grayImg_);
     // cout << grayThreshold_ << endl;
 
     // 得到原始的轮廓
-    cout << ">>> Getting Original Contour...." << endl;
+    // cout << ">>> Getting Original Contour...." << endl;
     originalContour_ = getOriginalContour(true);
 
-    // 平滑轮廓，使得下一步效果更好
-    smoothenContour(originalContour_, 8);
-
     // 根据轮廓进行Hough变换，得到罐体角度
-    cout << ">>> Getting Orientation...." << endl;
+    // cout << ">>> Getting Orientation...." << endl;
     posture_.angle_double = getOrientation();;
     posture_.angle = M_PI * posture_.angle_double / 180;
 
@@ -98,20 +95,19 @@ Posture& Jar::getPosture() {
     // imwrite("../imgs/output_imgs/grayImg_.jpg", *rotatedGrayImg_);
    
     // 根据得到的角度，画出边界竖线，使得边界上的标签不再联通   
-    cout << ">>> Fixxing Original Contour...." << endl;
+    // cout << ">>> Fixxing Original Contour...." << endl;
     fixedContour_ = fixContour();
-    smoothenContour(fixedContour_, 8);
 
     // 根据罐体角度，将图片和轮廓旋转为正
-    cout << ">>> Getting Rotated Contour...." << endl;
+    // cout << ">>> Getting Rotated Contour...." << endl;
     rotatedContour_ = getRotatedContour(fixedContour_, posture_.angle);
 
     // 旋转为正后进行宽度扫描，可以得到罐体上下边界点
-    cout << ">>> Scanning Contour...." << endl;
+    // cout << ">>> Scanning Contour...." << endl;
     scanContour(*rotatedGrayImg_, *rotatedContour_);
 
     // 统计扫描结果，可以得到主平均长度、罐体的旋转后中心、原始中心和上下边界点
-    cout << ">>> Handling Widths...." << endl;
+    // cout << ">>> Handling Widths...." << endl;
     posture_.width = handleWidths();
     if(posture_.width == -1) {
         state_ = kError;
@@ -132,8 +128,8 @@ void Jar::getObstruction() {
     if(state_ >= kObstructionFound) return;
     cout << "Finding Obstruction...." << endl;
 
-    findAndMarkObstruction(Left, posture_.width / 30);
-    findAndMarkObstruction(Right, posture_.width / 30);
+    findAndMarkObstruction(Left, posture_.width / 20);
+    findAndMarkObstruction(Right, posture_.width / 20);
 
     cout << "Finished!Found " << obstructions_.size() << " obstruction(s)!" << endl;
 
@@ -148,7 +144,7 @@ void Jar::getObstruction() {
     state_ = kObstructionFound;
 }
 
-void Jar::drawResult(const string& output, bool showResult) {
+void Jar::drawResult(const string& output_dir, bool showResult) const {
     if(state_ < kPostureGot) {
         cout << "Please get Posture/Obstruction first...." << endl;
         return;
@@ -204,10 +200,24 @@ void Jar::drawResult(const string& output, bool showResult) {
     }
 
     cout << "Saving result...." << endl;
-    imwrite(output, *paintImg_);
+    imwrite(output_dir, *paintImg_);
     state_ = kFinished;
 }
 
+// imgName posture numOfObstructions
+void Jar::writResult(FILE* file) const {
+    char msg[512];
+    sprintf(msg, "%s %d,%d %d,%d %d %d\n",
+            imgName_.c_str(),
+            static_cast<int>(posture_.center.x) + basePointOffset_.x, 
+            static_cast<int>(posture_.center.y) + basePointOffset_.y,
+            posture_.width, posture_.height,
+            static_cast<int>(posture_.angle_double),
+            static_cast<int>(obstructions_.size()));
+
+    fseek(file, 0, SEEK_END);
+    fwrite(msg, strlen(msg), 1, file);
+}
 
 /* 以下用户不可见 */
 void Jar::preprocess() {
@@ -281,21 +291,31 @@ int Jar::getGrayThreshold(const Mat& gray) {
         }
     }
     res = max(res, 35);
-    res = min(res, 50);
+    res = min(res, 53);
     return res;
 
 }
 
 ContourPtr Jar::getContour(const Mat& gray) {
+    // 图片各方向填充像素，避免边缘的线条被识别为轮廓
+    Mat paddedImg;
+    int gap = 20;
+    cv::copyMakeBorder(gray, paddedImg, gap, gap, gap, gap, BORDER_CONSTANT, Color::WHITE);
+
     vector<vector<Point> > contours;
     vector<Vec4i> hireachy;
-    cv::findContours(gray, contours, hireachy, cv::RETR_LIST, CHAIN_APPROX_SIMPLE, Point());
+    cv::findContours(paddedImg, contours, hireachy, cv::RETR_LIST, CHAIN_APPROX_SIMPLE, Point());
 
     // 获取最大轮廓
     for (size_t t = 0; t < contours.size(); ++t) {
         Rect rect = boundingRect(contours[t]);
         if(rect.width < gray.cols / 2) continue;
 
+        for(Point& point : contours[t]) {
+            point.x -= gap;
+            point.y -= gap;
+        }
+        
         return make_shared<vector<Point> >(contours[t]);
     } 
 }
@@ -313,43 +333,16 @@ ContourPtr Jar::getOriginalContour(bool showContour, cv::Scalar color) {
     cv::threshold(*grayImg_, binaryImg, grayThreshold_, 255, THRESH_BINARY);
 
     // // 使用 ERODE 方式 让目标外扩一些
-    // my_utils::morphology(binaryImg, binaryImg, MORPH_DILATE, 5);
-    my_utils::morphology(binaryImg, binaryImg, MORPH_ERODE, 12);
-    
-    // 图片各方向填充一个像素，避免边缘的线条被识别为轮廓
-    Mat paddedImg;
-    cv::copyMakeBorder(binaryImg, paddedImg, 1, 1, 1, 1, BORDER_CONSTANT, Color::WHITE);
-
+    my_utils::morphology(binaryImg, binaryImg, MORPH_ERODE, 10, MORPH_ELLIPSE, 2);
+    my_utils::morphology(binaryImg, binaryImg, MORPH_DILATE, 12, MORPH_CROSS);
+ 
     // 获取轮廓
-    auto contour = getContour(paddedImg);
+    auto contour = getContour(binaryImg);
+    
     if(showContour) {
         drawContour(contour, *paintImg_);
     }
     return contour;
-}
-
-void Jar::smoothenContour(ContourPtr contour, int filterRadius) {
-    // contour smoothing parameters for gaussian filter
-    int filterSize = 2 * filterRadius + 1;
-
-    size_t size = contour->size();
-    size_t len = size + 2 * filterRadius;
-    size_t idx = size - filterRadius;
-    
-    vector<float> x, y;
-    for (size_t i = 0; i < len; i++) {
-        x.push_back((*contour)[(idx + i) % size].x);
-        y.push_back((*contour)[(idx + i) % size].y);
-    }
-    // filter 1-D signals
-    vector<float> xFilt, yFilt;
-    cv::medianBlur(x, xFilt, filterSize);
-    cv::medianBlur(y, yFilt, filterSize);
-
-    // build smoothed contour
-    for (size_t i = filterRadius; i < size + filterRadius; i++) {
-        (*contour)[i] = Point(xFilt[i], yFilt[i]);
-    }
 }
 
 double Jar::getRoughOrientationByPCA() {
@@ -428,26 +421,37 @@ double Jar::getOrientation() {
     };
 
     angles_.reserve(lines_.size());
-    double total = 0.0;
 	for (const auto& line : lines_) {
 		// cv::line(*paintImg_, Point(line[0], line[1]), Point(line[2], line[3]), Color::CYAN, 2, LINE_AA);
         double angle = getAngle(line);
         angles_.push_back(angle);
-        total += angle;
 	}
 
     double rough = getRoughOrientationByPCA();
-    total = 0.0;
-    int count = 0;
+    // cout << rough << endl;
+
+    double pos_total = 0.0, neg_total = 0.0;
+    int pos_count = 0, neg_count = 0;
     for(double angle : angles_) {
         double delta = abs(angle - rough);
-        // 二者可能成小锐角（0， 20） 或者 大钝角（160， 180）
-        if(delta < 20.0 || delta > 160.0) {
-            total += angle;
-            ++count;
+        // 当为一般角度时，二者成小锐角（0， 20）
+        // 当角度接近+-90度时，二者可能成小锐角（0， 20）或者 大钝角（160， 180）
+        if(delta < 20.0) {
+            pos_total += angle;
+            ++pos_count;
+        }
+        if(delta > 160.0) {
+            neg_total += angle;
+            ++neg_count;
         }
     }
-    return total / static_cast<double>(count);
+
+    if(pos_count == 0 && neg_count == 0) return rough;
+
+    if(pos_count > 0) pos_total /= pos_count;
+    if(neg_count > 0) neg_total /= neg_count;
+    
+    return pos_count > neg_count ? pos_total : neg_total;
 }
 
 ContourPtr Jar::fixContour() {
@@ -540,7 +544,7 @@ ContourPtr Jar::fixContour() {
     }
 
     auto contour = getContour(onlyContours);
-    // drawContour(contour, *paintImg_);
+    // drawContour(contour, *paintImg_, Color::ORANGE);
     // imshow("tmp", onlyContours);
     return contour;
 }
@@ -561,12 +565,13 @@ ContourPtr Jar::getRotatedContour(ContourPtr contour, double angle) {
 void Jar::scanContour(const Mat& img, const std::vector<Point>& contour) {
     Mat mask = cv::Mat::zeros(img.size(), CV_8UC1);
     int rows = img.rows, cols = img.cols;
-    for(int y = 0;y <= rows;y += 10) {
-        line(mask, Point(0, y), Point(cols, y), Scalar(255,255,255), 1, 4);
+
+    for(int y = 0;y <= rows;y += 5) {
+        line(mask, Point(0, y), Point(cols, y), cv::Scalar(255,255,255), 1, 4);
     }
     
     Mat onlyContours = cv::Mat::zeros(img.size(), CV_8UC1);;
-    vector<vector<Point> > contours{*rotatedContour_};
+    vector<vector<Point> > contours{contour};
     drawContours(onlyContours, contours, 0, CV_RGB(255, 255, 255), 1, 8);
 
     Mat res(img.size(), CV_8UC1);
@@ -673,59 +678,59 @@ int Jar::handleWidths() {
 }
 
 void Jar::findAndMarkObstruction(Direction direction, int obstruction_threshold) {
-    int up_bound = verticalBounds_.first, down_bound = verticalBounds_.second;
     int mainWidth = posture_.width;
 
     // int l = (rotatedCenter_.x -  (mainWidth / 2)) - obstruction_threshold;
     // int r = (rotatedCenter_.x +  (mainWidth / 2)) + obstruction_threshold;
-    // cv::line(*rotatedGrayImg_, Point(l, up_bound), Point(l, down_bound), Scalar(0,200,255), 2, 4);
-    // cv::line(*rotatedGrayImg_, Point(r, up_bound), Point(r, down_bound), Scalar(0,200,255), 2, 4);
+    // cv::line(*rotatedGrayImg_, Point(l, up_bound), Point(l, down_bound), cv::(0,200,255), 2, 4);
+    // cv::line(*rotatedGrayImg_, Point(r, up_bound), Point(r, down_bound), cv::Scalar(0,200,255), 2, 4);
     // imshow("bounds", *rotatedGrayImg_);
-
-    auto isObstruction = [&](int curY)->bool{
-        int width = boundsOfY_[curY].second - boundsOfY_[curY].first;
+    
+    auto isObstruction = [&](std::map<int, Bounds>::iterator it)->bool{
+        int width = it->second.second - it->second.first;
         if(direction == Left) {
-            int left_width = static_cast<int>(rotatedCenter_.x) - boundsOfY_[curY].first;
+            int left_width = static_cast<int>(rotatedCenter_.x) - it->second.first;
             return (width >= mainWidth + obstruction_threshold) &&
                 (left_width >= mainWidth / 2 + obstruction_threshold);
         }
         else {
-            int right_width = boundsOfY_[curY].second - static_cast<int>(rotatedCenter_.x);  
+            int right_width = it->second.second - static_cast<int>(rotatedCenter_.x);  
             return (width >= mainWidth + obstruction_threshold) &&
                 (right_width >= mainWidth / 2 + obstruction_threshold);
         }
         return false;
     };
 
-    int step = 5;
-    int curY = up_bound;
+    auto it = boundsOfY_.begin();
+    int begin = it->first, end = it->first;
 
-    int begin = curY, end = curY, tmp_end = curY;
     int bound = direction == Left ? INT_MAX : 0;
     bool lastStepIsObstruction = false;
 
-    while(curY <= down_bound) {
+    while(it != boundsOfY_.end()) {
         // 当前属于障碍区域
-        if(isObstruction(curY)) {
+        if(isObstruction(it)) {
             // 如果上一步不是在障碍区扫描，则认为找到了下一个begin
             if(!lastStepIsObstruction) {
                 bound = direction == Left ? INT_MAX : 0;
                 lastStepIsObstruction = true;
-                begin = curY;
+                begin = it->first;
             }
 
             // 记录障碍区域的边界
-            bound = direction == Left ? min(boundsOfY_[curY].first, bound) : max(boundsOfY_[curY].second, bound);
+            bound = direction == Left ? min(it->second.first, bound) : max(it->second.second, bound);
 
             // cv::circle(*rotatedGrayImg_, Point(bound, curY), 3, CV_RGB(255, 255, 255), 2);
         }
         else { // 当前不是障碍区域
             // 如果上一步正在障碍区扫描，且下一步仍然不是障碍区域，则认为找到了一个end
-            bool nextStepIsObstruction = isObstruction(curY + step);
+            ++it;
+            bool nextStepIsObstruction = (it != boundsOfY_.end() && isObstruction(it));
+            --it;
             if(lastStepIsObstruction && !nextStepIsObstruction) {
-                end = curY;
-                // 忽略高度小于阈值的障碍
-                if(end - begin >= obstruction_threshold) {
+                end = it->first;
+                // 忽略高度小于1.5倍阈值的障碍
+                if(end - begin >= (3 * obstruction_threshold / 2)) {
                     // 框出障碍
                     int width = static_cast<int>(abs(rotatedCenter_.x - bound)) - mainWidth / 2;
                     int height = end - begin;
@@ -740,7 +745,7 @@ void Jar::findAndMarkObstruction(Direction direction, int obstruction_threshold)
                 lastStepIsObstruction = false;
             }
         }
-        curY += step;
+        ++it;
     }
 }
 

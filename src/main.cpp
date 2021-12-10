@@ -3,8 +3,7 @@
 #include <math.h>
 #include <string>
 #include "jar.h"
-#include "imgCropper.h"
-#include <Python.h>
+#include "imageCropper.h"
 #include <chrono>
 
 using namespace std;
@@ -20,16 +19,12 @@ int main(int argc, char* argv[]) {
         printf("%s does not exist!!!\nPlease check the path...\n", imgName.c_str());
         return -1;
     }
-    // imshow("origin", img);
-    // waitKey(0);
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    imgCropper cropper;
-    cropper.init("../yolo");
-    cropper.findModule("detect");
-    cropper.findFunc("findBox");
-    cv::Rect box = cropper.getCroppedBox(img);
+    imgCropper cropper(torch::kCPU);
+    cropper.init( "../yolo/yolov3.cfg", "../yolo/weights/jar.weights");
+    cv::Rect box = cropper.getCroppedBox(img, 30);
     if(box.empty()) {
         cout << "No Jar Found in this img!" << endl;
         return -1;
@@ -39,7 +34,10 @@ int main(int argc, char* argv[]) {
 	std::chrono::duration<double, std::milli> timeUsed = end - start;
 	cout << "YOLOV3 Time used : " << timeUsed.count() << " ms" << endl;
 
-    Mat cropped = img(box);
+    // If you want to have an independent copy of the sub-array, use Mat::clone()
+    Mat cropped = img(box).clone();
+    // Mat padded;
+    // cv::copyMakeBorder(cropped, padded, 10, 10, 10, 10, BORDER_CONSTANT, cv::Scalar(255, 255, 255));
 
     Jar jar;
     if(!jar.init(std::move(cropped)))
@@ -52,6 +50,6 @@ int main(int argc, char* argv[]) {
 	timeUsed = end - start;
 	cout << "Time used : " << timeUsed.count() << " ms" << endl;
 
-    jar.drawResult(output_dir + imgName, false);
+    jar.drawResult(output_dir + imgName, true);
     return 0;
 }
